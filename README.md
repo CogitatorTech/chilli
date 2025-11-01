@@ -6,13 +6,13 @@
 
 <h2>Chilli</h2>
 
-[![Tests](https://img.shields.io/github/actions/workflow/status/habedi/chilli/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/habedi/chilli/actions/workflows/tests.yml)
-[![CodeFactor](https://img.shields.io/codefactor/grade/github/habedi/chilli?label=code%20quality&style=flat&labelColor=282c34&logo=codefactor)](https://www.codefactor.io/repository/github/habedi/chilli)
-[![Zig Version](https://img.shields.io/badge/Zig-0.15.1-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download/)
-[![Docs](https://img.shields.io/badge/docs-view-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://habedi.github.io/chilli/)
-[![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/habedi/chilli/tree/main/examples)
-[![Release](https://img.shields.io/github/release/habedi/chilli.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/habedi/chilli/releases/latest)
-[![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/habedi/chilli/blob/main/LICENSE)
+[![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/chilli/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/actions/workflows/tests.yml)
+[![CodeFactor](https://img.shields.io/codefactor/grade/github/CogitatorTech/chilli?label=code%20quality&style=flat&labelColor=282c34&logo=codefactor)](https://www.codefactor.io/repository/github/CogitatorTech/chilli)
+[![Zig Version](https://img.shields.io/badge/Zig-0.15.1-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download)
+[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/chilli)
+[![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/chilli/tree/main/examples)
+[![Release](https://img.shields.io/github/release/CogitatorTech/chilli.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/CogitatorTech/chilli/blob/main/LICENSE)
 
 A microframework for creating command-line applications in Zig
 
@@ -33,6 +33,12 @@ while being small and fast, and not getting in the way of your application logic
 - Uses a shared context to pass application state
 - Written in pure Zig with no external dependencies
 
+See the [ROADMAP.md](ROADMAP.md) for the list of implemented and planned features.
+
+> [!IMPORTANT]
+> Chilli is in early development, so bugs and breaking changes are expected.
+> Please use the [issues page](https://github.com/CogitatorTech/chilli/issues) to report bugs or request features.
+
 ---
 
 ### Getting Started
@@ -44,7 +50,7 @@ You can add Chilli to your project and start using it by following the steps bel
 Run the following command in the root directory of your project to download Chilli:
 
 ```sh
-zig fetch --save=chilli "https://github.com/habedi/chilli/archive/<branch_or_tag>.tar.gz"
+zig fetch --save=chilli "https://github.com/CogitatorTech/chilli/archive/<branch_or_tag>.tar.gz"
 ```
 
 Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.2.0`
@@ -162,7 +168,7 @@ FLAGS:
 
 ### Documentation
 
-You can find the full API documentation for the latest release of Chilli [here](https://habedi.github.io/chilli/).
+You can find the full API documentation for the latest release of Chilli [here](https://CogitatorTech.github.io/chilli).
 
 Alternatively, you can use the `make docs` command to generate the API documentation for the current version of Chilli
 from the source code.
@@ -171,35 +177,8 @@ and view in your web browser at [http://localhost:8000](http://localhost:8000).
 
 ### Examples
 
-Check out the [examples](examples/) directory for examples of how Chilli can be used to build a variety of CLI
+Check out the [examples](examples) directory for examples of how Chilli can be used to build a variety of CLI
 applications.
-
-### Feature Roadmap
-
--   [x] **Command Structure**
-    -   [x] Nested commands and subcommands
-    -   [x] Command aliases and single-character shortcuts
-    -   [x] Persistent flags (flags on parent commands are available to children)
-
--   [x] **Argument & Flag Parsing**
-    -   [x] Long flags (`--verbose`), short flags (`-v`), and grouped boolean flags (`-vf`)
-    -   [x] Positional Arguments (supports required, optional, and variadic)
-    -   [x] Type-safe access for flags and arguments (e.g., `ctx.getFlag("count", i64)`)
-    -   [x] Reading flag values from environment variables
-
--   [x] **Help & Usage Output**
-    -   [x] Automatic and context-aware `--help` flag
-    -   [x] Automatic `--version` flag
-    -   [x] Clean, aligned help output for commands, flags, and arguments
-    -   [x] Grouping subcommands into custom sections
-
--   [x] **Developer Experience**
-    -   [x] Simple, declarative API for building commands
-    -   [x] Named access for all flags and arguments
-    -   [x] Shared context data for passing application state
-    -   [ ] Deprecation notices for commands or flags
-    -   [ ] Built-in TUI components (like spinners and progress bars)
-    -   [ ] Automatic command history and completion
 
 ---
 
