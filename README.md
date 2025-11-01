@@ -192,4 +192,4 @@ Chilli is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 ### Acknowledgements
 
-* The logo is from [SVG Repo](https://www.svgrepo.com/svg/45673/chili-pepper).
+* The logo is from [SVG Repo](https://www.svgrepo.com/svg/45673/chili-pepper) with some modifications.
