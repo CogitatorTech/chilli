@@ -6,13 +6,13 @@
 
 <h2>Chilli</h2>
 
-[![Tests](https://img.shields.io/github/actions/workflow/status/habedi/chilli/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/habedi/chilli/actions/workflows/tests.yml)
-[![CodeFactor](https://img.shields.io/codefactor/grade/github/habedi/chilli?label=code%20quality&style=flat&labelColor=282c34&logo=codefactor)](https://www.codefactor.io/repository/github/habedi/chilli)
+[![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/chilli/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/actions/workflows/tests.yml)
+[![CodeFactor](https://img.shields.io/codefactor/grade/github/CogitatorTech/chilli?label=code%20quality&style=flat&labelColor=282c34&logo=codefactor)](https://www.codefactor.io/repository/github/CogitatorTech/chilli)
 [![Zig Version](https://img.shields.io/badge/Zig-0.15.1-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download/)
-[![Docs](https://img.shields.io/badge/docs-view-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://habedi.github.io/chilli/)
-[![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/habedi/chilli/tree/main/examples)
-[![Release](https://img.shields.io/github/release/habedi/chilli.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/habedi/chilli/releases/latest)
-[![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/habedi/chilli/blob/main/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/chilli/)
+[![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/chilli/tree/main/examples)
+[![Release](https://img.shields.io/github/release/CogitatorTech/chilli.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-007ec6?label=license&style=flat&labelColor=282c34&logo=open-source-initiative)](https://github.com/CogitatorTech/chilli/blob/main/LICENSE)
 
 A microframework for creating command-line applications in Zig
 
@@ -44,7 +44,7 @@ You can add Chilli to your project and start using it by following the steps bel
 Run the following command in the root directory of your project to download Chilli:
 
 ```sh
-zig fetch --save=chilli "https://github.com/habedi/chilli/archive/<branch_or_tag>.tar.gz"
+zig fetch --save=chilli "https://github.com/CogitatorTech/chilli/archive/<branch_or_tag>.tar.gz"
 ```
 
 Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.2.0`
@@ -162,7 +162,7 @@ FLAGS:
 
 ### Documentation
 
-You can find the full API documentation for the latest release of Chilli [here](https://habedi.github.io/chilli/).
+You can find the full API documentation for the latest release of Chilli [here](https://CogitatorTech.github.io/chilli/).
 
 Alternatively, you can use the `make docs` command to generate the API documentation for the current version of Chilli
 from the source code.
