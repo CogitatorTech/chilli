@@ -1,11 +1,14 @@
 name: Publish API Documentation
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
 
-  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
