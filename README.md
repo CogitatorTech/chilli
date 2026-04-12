@@ -7,8 +7,7 @@
 <h2>Chilli</h2>
 
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/chilli/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/actions/workflows/tests.yml)
-[![CodeFactor](https://img.shields.io/codefactor/grade/github/CogitatorTech/chilli?label=code%20quality&style=flat&labelColor=282c34&logo=codefactor)](https://www.codefactor.io/repository/github/CogitatorTech/chilli)
-[![Zig Version](https://img.shields.io/badge/Zig-0.15.1-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download)
+[![Zig Version](https://img.shields.io/badge/Zig-0.15.2-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download)
 [![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/chilli)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/chilli/tree/main/examples)
 [![Release](https://img.shields.io/github/release/CogitatorTech/chilli.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/releases/latest)
@@ -53,8 +52,8 @@ Run the following command in the root directory of your project to download Chil
 zig fetch --save=chilli "https://github.com/CogitatorTech/chilli/archive/<branch_or_tag>.tar.gz"
 ```
 
-Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.2.0`
-(for the latest release).
+Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.2.3`
+(for the specified release version).
 This command will download Chilli and add it to Zig's global cache and update your project's `build.zig.zon` file.
 
 #### Adding to Build Script
@@ -151,7 +150,7 @@ You can now run your CLI application with the `--help` flag to see the output be
 
 ```bash
 $ ./your-cli-app --help
-your-cli-app v0.2.0
+your-cli-app v0.2.3
 A new CLI built with Chilli
 
 USAGE:
@@ -192,4 +191,4 @@ Chilli is licensed under the MIT License (see [LICENSE](LICENSE)).
 
 ### Acknowledgements
 
-* The logo is from [SVG Repo](https://www.svgrepo.com/svg/45673/chili-pepper).
+* The logo is from [SVG Repo](https://www.svgrepo.com/svg/45673/chili-pepper) with some modifications.

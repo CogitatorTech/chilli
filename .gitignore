@@ -104,3 +104,5 @@ docs/api/
 *.dll
 *.exe
 latest
+.claude/
+.codex

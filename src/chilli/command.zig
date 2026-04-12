@@ -153,21 +153,33 @@ pub const Command = struct {
         var arg_iterator = parser.ArgIterator.init(user_args);
 
         var current_cmd: *Command = self;
+        out_failed_cmd.* = current_cmd;
+
+        // Reset root command state for re-entering.
+        current_cmd.parsed_flags.shrinkRetainingCapacity(0);
+        current_cmd.parsed_positionals.shrinkRetainingCapacity(0);
+
+        // Resolve the subcommand chain, parsing flags at each level.
+        // Flags before a subcommand name are stored on the command at that level.
         while (arg_iterator.peek()) |arg| {
-            if (std.mem.startsWith(u8, arg, "-")) break;
+            if (std.mem.eql(u8, arg, "--")) break;
+            if (std.mem.startsWith(u8, arg, "-")) {
+                try parser.parseFlagsOnly(current_cmd, &arg_iterator);
+                continue;
+            }
             if (current_cmd.findSubcommand(arg)) |found_sub| {
                 current_cmd = found_sub;
+                out_failed_cmd.* = current_cmd;
+                // Reset subcommand state for re-entrancy.
+                current_cmd.parsed_flags.shrinkRetainingCapacity(0);
+                current_cmd.parsed_positionals.shrinkRetainingCapacity(0);
                 arg_iterator.next();
             } else {
                 break;
             }
         }
-        out_failed_cmd.* = current_cmd;
 
-        // Reset state from any previous run, making the command re-entrant.
-        current_cmd.parsed_flags.shrinkRetainingCapacity(0);
-        current_cmd.parsed_positionals.shrinkRetainingCapacity(0);
-
+        // Parse remaining flags and positional arguments for the final resolved command.
         try parser.parseArgsAndFlags(current_cmd, &arg_iterator);
 
         // Check for --help and --version flags BEFORE validation
@@ -344,10 +356,16 @@ pub const Command = struct {
         return null;
     }
 
-    /// (Internal) Retrieves the parsed value of a flag for the current command.
+    /// (Internal) Retrieves the parsed value of a flag, searching upwards through
+    /// parent commands. This mirrors `findFlag` and allows subcommand exec functions
+    /// to access flags that were parsed at a parent command level.
     pub fn getFlagValue(self: *const Command, name: []const u8) ?types.FlagValue {
-        for (self.parsed_flags.items) |flag| {
-            if (std.mem.eql(u8, flag.name, name)) return flag.value;
+        var current: ?*const Command = self;
+        while (current) |cmd| {
+            for (cmd.parsed_flags.items) |flag| {
+                if (std.mem.eql(u8, flag.name, name)) return flag.value;
+            }
+            current = cmd.parent;
         }
         return null;
     }
@@ -441,6 +459,114 @@ test "command: execute with args and flags" {
     try testing.expect(failed_cmd == null);
     try testing.expect(integration_flag_val);
     try testing.expectEqualStrings("input.txt", integration_arg_val);
+}
+
+// -- Tests for flags before subcommand (issue #12) --
+
+var parent_flag_from_sub: []const u8 = "";
+
+fn parentFlagExec(ctx: context.CommandContext) !void {
+    parent_flag_from_sub = try ctx.getFlag("config", []const u8);
+    integration_arg_val = try ctx.getArg("file", []const u8);
+}
+
+test "command: root flag before subcommand resolves subcommand" {
+    const allocator = testing.allocator;
+    var root = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer root.deinit();
+
+    try root.addFlag(.{ .name = "config", .type = .String, .default_value = .{ .String = "default.conf" }, .description = "" });
+
+    var sub = try Command.init(allocator, .{ .name = "run", .description = "", .exec = parentFlagExec });
+    try root.addSubcommand(sub);
+    try sub.addPositional(.{ .name = "file", .is_required = true, .description = "" });
+
+    // The exact pattern from the bug report: --config <value> run <arg>
+    var failed_cmd: ?*const Command = null;
+    const args = &[_][]const u8{ "--config", "custom.conf", "run", "input.txt" };
+    try root.execute(args, null, &failed_cmd);
+
+    try testing.expect(failed_cmd == null);
+    try testing.expectEqualStrings("input.txt", integration_arg_val);
+}
+
+test "command: root short flag before subcommand resolves subcommand" {
+    const allocator = testing.allocator;
+    var root = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer root.deinit();
+
+    try root.addFlag(.{ .name = "verbose", .shortcut = 'v', .type = .Bool, .default_value = .{ .Bool = false }, .description = "" });
+
+    exec_called_on = null;
+    const sub = try Command.init(allocator, .{ .name = "run", .description = "", .exec = trackingExec });
+    try root.addSubcommand(sub);
+
+    var failed_cmd: ?*const Command = null;
+    const args = &[_][]const u8{ "-v", "run" };
+    try root.execute(args, null, &failed_cmd);
+
+    try testing.expect(failed_cmd == null);
+    try testing.expectEqualStrings("run", exec_called_on.?);
+}
+
+test "command: multiple root flags before subcommand" {
+    const allocator = testing.allocator;
+    var root = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer root.deinit();
+
+    try root.addFlag(.{ .name = "verbose", .shortcut = 'v', .type = .Bool, .default_value = .{ .Bool = false }, .description = "" });
+    try root.addFlag(.{ .name = "config", .type = .String, .default_value = .{ .String = "default.conf" }, .description = "" });
+
+    exec_called_on = null;
+    const sub = try Command.init(allocator, .{ .name = "run", .description = "", .exec = trackingExec });
+    try root.addSubcommand(sub);
+
+    var failed_cmd: ?*const Command = null;
+    const args = &[_][]const u8{ "-v", "--config=custom.conf", "run" };
+    try root.execute(args, null, &failed_cmd);
+
+    try testing.expect(failed_cmd == null);
+    try testing.expectEqualStrings("run", exec_called_on.?);
+}
+
+test "command: getFlagValue traverses parents" {
+    const allocator = testing.allocator;
+    var root = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer root.deinit();
+
+    try root.addFlag(.{ .name = "config", .type = .String, .default_value = .{ .String = "default.conf" }, .description = "" });
+
+    var sub = try Command.init(allocator, .{ .name = "run", .description = "", .exec = parentFlagExec });
+    try root.addSubcommand(sub);
+    try sub.addPositional(.{ .name = "file", .is_required = true, .description = "" });
+
+    parent_flag_from_sub = "";
+    var failed_cmd: ?*const Command = null;
+    const args = &[_][]const u8{ "--config", "custom.conf", "run", "input.txt" };
+    try root.execute(args, null, &failed_cmd);
+
+    try testing.expect(failed_cmd == null);
+    // The subcommand's exec must see the root-level --config value, not the default
+    try testing.expectEqualStrings("custom.conf", parent_flag_from_sub);
+}
+
+test "command: -- before subcommand stops resolution" {
+    const allocator = testing.allocator;
+    var root = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer root.deinit();
+
+    exec_called_on = null;
+    const sub = try Command.init(allocator, .{ .name = "run", .description = "", .exec = trackingExec });
+    try root.addSubcommand(sub);
+    try root.addPositional(.{ .name = "arg", .is_required = true, .description = "" });
+
+    var failed_cmd: ?*const Command = null;
+    // -- stops subcommand resolution, so "run" becomes a positional for root
+    const args = &[_][]const u8{ "--", "run" };
+    try root.execute(args, null, &failed_cmd);
+
+    try testing.expect(failed_cmd == null);
+    try testing.expectEqualStrings("app", exec_called_on.?);
 }
 
 test "command: addSubcommand detects empty alias" {

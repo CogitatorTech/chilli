@@ -33,6 +33,93 @@ pub const ParsedFlag = struct {
     value: types.FlagValue,
 };
 
+/// Result of attempting to parse a single flag from the iterator.
+const FlagParseResult = enum {
+    /// A flag was successfully parsed and consumed from the iterator.
+    parsed,
+    /// The current argument is not a flag (no `-` prefix, is `--`, or end of args).
+    not_a_flag,
+};
+
+/// Attempts to parse a single flag (long or short) from the current iterator position.
+/// If successful, the parsed flag is appended to `cmd.parsed_flags` and the iterator
+/// is advanced past the flag (and its value, if any). Returns `.not_a_flag` if the
+/// current argument is not a flag.
+fn parseSingleFlag(cmd: *command.Command, iterator: *ArgIterator) errors.Error!FlagParseResult {
+    const arg = iterator.peek() orelse return .not_a_flag;
+
+    if (std.mem.eql(u8, arg, "--")) return .not_a_flag;
+
+    if (std.mem.startsWith(u8, arg, "--")) {
+        const arg_body = arg[2..];
+        var flag_name: []const u8 = arg_body;
+        var value: ?[]const u8 = null;
+
+        if (std.mem.indexOfScalar(u8, arg_body, '=')) |eq_idx| {
+            flag_name = arg_body[0..eq_idx];
+            value = arg_body[eq_idx + 1 ..];
+        }
+
+        const flag = cmd.findFlag(flag_name) orelse return errors.Error.UnknownFlag;
+
+        if (flag.type == .Bool) {
+            const flag_value = if (value) |v| try utils.parseBool(v) else true;
+            try cmd.parsed_flags.append(cmd.allocator, .{
+                .name = flag_name,
+                .value = .{ .Bool = flag_value },
+            });
+            iterator.next();
+        } else {
+            iterator.next();
+            const val = value orelse iterator.peek() orelse return errors.Error.MissingFlagValue;
+            if (value == null) {
+                iterator.next();
+            }
+            try cmd.parsed_flags.append(cmd.allocator, .{
+                .name = flag_name,
+                .value = try types.parseValue(flag.type, val),
+            });
+        }
+        return .parsed;
+    }
+
+    if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
+        const shortcuts = arg[1..];
+        iterator.next();
+
+        for (shortcuts, 0..) |shortcut, i| {
+            const flag = cmd.findFlagByShortcut(shortcut) orelse return errors.Error.UnknownFlag;
+
+            if (flag.type == .Bool) {
+                try cmd.parsed_flags.append(cmd.allocator, .{ .name = flag.name, .value = .{ .Bool = true } });
+            } else {
+                var value: []const u8 = undefined;
+                var value_from_next_arg = false;
+
+                if (shortcuts.len > i + 1) {
+                    value = shortcuts[i + 1 ..];
+                } else {
+                    value = iterator.peek() orelse return errors.Error.MissingFlagValue;
+                    value_from_next_arg = true;
+                }
+
+                if (value_from_next_arg) {
+                    iterator.next();
+                }
+
+                try cmd.parsed_flags.append(cmd.allocator, .{
+                    .name = flag.name,
+                    .value = try types.parseValue(flag.type, value),
+                });
+                break;
+            }
+        }
+        return .parsed;
+    }
+
+    return .not_a_flag;
+}
+
 /// Parses command-line arguments from an iterator, populating the command's
 /// `parsed_flags` and `parsed_positionals` fields.
 ///
@@ -40,84 +127,32 @@ pub const ParsedFlag = struct {
 /// - `iterator`: The `ArgIterator` providing the argument strings.
 pub fn parseArgsAndFlags(cmd: *command.Command, iterator: *ArgIterator) errors.Error!void {
     var parsing_flags = true;
-    while (iterator.peek()) |arg| {
+    while (iterator.peek()) |_| {
         if (parsing_flags) {
-            if (std.mem.eql(u8, arg, "--")) {
+            if (std.mem.eql(u8, iterator.peek().?, "--")) {
                 parsing_flags = false;
                 iterator.next();
                 continue;
             }
-
-            if (std.mem.startsWith(u8, arg, "--")) {
-                const arg_body = arg[2..];
-                var flag_name: []const u8 = arg_body;
-                var value: ?[]const u8 = null;
-
-                if (std.mem.indexOfScalar(u8, arg_body, '=')) |eq_idx| {
-                    flag_name = arg_body[0..eq_idx];
-                    value = arg_body[eq_idx + 1 ..];
-                }
-
-                const flag = cmd.findFlag(flag_name) orelse return errors.Error.UnknownFlag;
-
-                if (flag.type == .Bool) {
-                    const flag_value = if (value) |v| try utils.parseBool(v) else true;
-                    try cmd.parsed_flags.append(cmd.allocator, .{
-                        .name = flag_name,
-                        .value = .{ .Bool = flag_value },
-                    });
-                    iterator.next();
-                } else {
-                    iterator.next();
-                    const val = value orelse iterator.peek() orelse return errors.Error.MissingFlagValue;
-                    if (value == null) {
-                        iterator.next();
-                    }
-                    try cmd.parsed_flags.append(cmd.allocator, .{
-                        .name = flag_name,
-                        .value = try types.parseValue(flag.type, val),
-                    });
-                }
-                continue;
-            }
-
-            if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
-                const shortcuts = arg[1..];
-                iterator.next();
-
-                for (shortcuts, 0..) |shortcut, i| {
-                    const flag = cmd.findFlagByShortcut(shortcut) orelse return errors.Error.UnknownFlag;
-
-                    if (flag.type == .Bool) {
-                        try cmd.parsed_flags.append(cmd.allocator, .{ .name = flag.name, .value = .{ .Bool = true } });
-                    } else {
-                        var value: []const u8 = undefined;
-                        var value_from_next_arg = false;
-
-                        if (shortcuts.len > i + 1) {
-                            value = shortcuts[i + 1 ..];
-                        } else {
-                            value = iterator.peek() orelse return errors.Error.MissingFlagValue;
-                            value_from_next_arg = true;
-                        }
-
-                        if (value_from_next_arg) {
-                            iterator.next();
-                        }
-
-                        try cmd.parsed_flags.append(cmd.allocator, .{
-                            .name = flag.name,
-                            .value = try types.parseValue(flag.type, value),
-                        });
-                        break;
-                    }
-                }
-                continue;
-            }
+            const result = try parseSingleFlag(cmd, iterator);
+            if (result == .parsed) continue;
         }
 
-        try cmd.parsed_positionals.append(cmd.allocator, arg);
+        try cmd.parsed_positionals.append(cmd.allocator, iterator.peek().?);
         iterator.next();
+    }
+}
+
+/// Parses only flags (long and short) from the argument iterator, stopping at the first
+/// non-flag argument or `--`. This is used during subcommand resolution to consume flags
+/// that appear before subcommand names.
+///
+/// - `cmd`: The command whose flag definitions are used for parsing.
+/// - `iterator`: The argument iterator to read from.
+pub fn parseFlagsOnly(cmd: *command.Command, iterator: *ArgIterator) errors.Error!void {
+    while (true) {
+        const result = try parseSingleFlag(cmd, iterator);
+        if (result == .not_a_flag) break;
     }
 }
 
@@ -310,4 +345,69 @@ test "parser: argument validation" {
     cmd.parsed_positionals.clearRetainingCapacity();
     try cmd.parsed_positionals.appendSlice(&[_][]const u8{ "a", "b" });
     try validateArgs(&cmd);
+}
+
+test "parser: parseFlagsOnly stops at non-flag argument" {
+    const allocator = testing.allocator;
+    var cmd = try newTestCmd(allocator);
+    defer cmd.deinit();
+
+    var it = ArgIterator.init(&[_][]const u8{ "--verbose", "-f", "positional", "--output", "file.txt" });
+    try parseFlagsOnly(&cmd, &it);
+
+    // Should have parsed --verbose and -f, then stopped at "positional"
+    try testing.expectEqual(2, cmd.parsed_flags.items.len);
+    try testing.expectEqualStrings("verbose", cmd.parsed_flags.items[0].name);
+    try testing.expect(cmd.parsed_flags.items[0].value.Bool);
+    try testing.expectEqualStrings("force", cmd.parsed_flags.items[1].name);
+    try testing.expect(cmd.parsed_flags.items[1].value.Bool);
+
+    // Iterator should be pointing at "positional"
+    try testing.expectEqualStrings("positional", it.peek().?);
+}
+
+test "parser: parseFlagsOnly stops at -- terminator" {
+    const allocator = testing.allocator;
+    var cmd = try newTestCmd(allocator);
+    defer cmd.deinit();
+
+    var it = ArgIterator.init(&[_][]const u8{ "--verbose", "--", "--force" });
+    try parseFlagsOnly(&cmd, &it);
+
+    // Should have parsed --verbose, then stopped at --
+    try testing.expectEqual(1, cmd.parsed_flags.items.len);
+    try testing.expectEqualStrings("verbose", cmd.parsed_flags.items[0].name);
+
+    // Iterator should be pointing at "--"
+    try testing.expectEqualStrings("--", it.peek().?);
+}
+
+test "parser: parseFlagsOnly consumes flag values" {
+    const allocator = testing.allocator;
+    var cmd = try newTestCmd(allocator);
+    defer cmd.deinit();
+
+    // --output takes a value; parseFlagsOnly must consume both the flag and its value
+    var it = ArgIterator.init(&[_][]const u8{ "--output", "file.txt", "subcmd" });
+    try parseFlagsOnly(&cmd, &it);
+
+    try testing.expectEqual(1, cmd.parsed_flags.items.len);
+    try testing.expectEqualStrings("output", cmd.parsed_flags.items[0].name);
+    try testing.expectEqualStrings("file.txt", cmd.parsed_flags.items[0].value.String);
+
+    // Iterator should be pointing at "subcmd", not "file.txt"
+    try testing.expectEqualStrings("subcmd", it.peek().?);
+}
+
+test "parser: parseFlagsOnly with --flag=value syntax" {
+    const allocator = testing.allocator;
+    var cmd = try newTestCmd(allocator);
+    defer cmd.deinit();
+
+    var it = ArgIterator.init(&[_][]const u8{ "--output=file.txt", "subcmd" });
+    try parseFlagsOnly(&cmd, &it);
+
+    try testing.expectEqual(1, cmd.parsed_flags.items.len);
+    try testing.expectEqualStrings("file.txt", cmd.parsed_flags.items[0].value.String);
+    try testing.expectEqualStrings("subcmd", it.peek().?);
 }
