@@ -52,7 +52,7 @@ Run the following command in the root directory of your project to download Chil
 zig fetch --save=chilli "https://github.com/CogitatorTech/chilli/archive/<branch_or_tag>.tar.gz"
 ```
 
-Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.2.2`
+Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.2.3`
 (for the specified release version).
 This command will download Chilli and add it to Zig's global cache and update your project's `build.zig.zon` file.
 
@@ -150,7 +150,7 @@ You can now run your CLI application with the `--help` flag to see the output be
 
 ```bash
 $ ./your-cli-app --help
-your-cli-app v0.2.2
+your-cli-app v0.2.3
 A new CLI built with Chilli
 
 USAGE:
