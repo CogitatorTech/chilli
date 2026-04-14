@@ -1,8 +1,17 @@
 //! Provides the execution context for a command, giving access to parsed arguments and flags.
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const command = @import("command.zig");
 const errors = @import("errors.zig");
+
+/// Returns true on targets where POSIX environment variable lookup is available.
+fn canLookupEnv() bool {
+    return switch (builtin.os.tag) {
+        .windows, .wasi, .emscripten, .freestanding, .other => false,
+        else => true,
+    };
+}
 
 /// (Private) Describes the source of a value for error reporting.
 const ValueSource = enum {
@@ -81,11 +90,14 @@ pub const CommandContext = struct {
             std.debug.panic("Attempted to access an undefined flag: '{s}'", .{name});
 
         // 3. Check for a value from an environment variable.
-        if (flag_def.env_var) |env_name| {
-            const environ = std.Options.debug_threaded_io.?.environ.process_environ;
-            if (std.process.Environ.getPosix(environ, env_name)) |env_val_str| {
-                const env_value = try types.parseValue(flag_def.type, env_val_str);
-                return castFlagValueTo(env_value, T, "flag", name, .environment);
+        // getPosix is only available on POSIX targets (not Windows/WASI/freestanding).
+        if (comptime canLookupEnv()) {
+            if (flag_def.env_var) |env_name| {
+                const environ = std.Options.debug_threaded_io.?.environ.process_environ;
+                if (std.process.Environ.getPosix(environ, env_name)) |env_val_str| {
+                    const env_value = try types.parseValue(flag_def.type, env_val_str);
+                    return castFlagValueTo(env_value, T, "flag", name, .environment);
+                }
             }
         }
 

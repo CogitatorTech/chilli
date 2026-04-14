@@ -38,11 +38,6 @@ pub fn build(b: *std.Build) void {
         "-femit-docs=" ++ doc_install_path,
     });
 
-    const mkdir_cmd = b.addSystemCommand(&[_][]const u8{
-        "mkdir", "-p", doc_install_path,
-    });
-    gen_docs_cmd.step.dependOn(&mkdir_cmd.step);
-
     docs_step.dependOn(&gen_docs_cmd.step);
 
     // --- Test Setup ---
