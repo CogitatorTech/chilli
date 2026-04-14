@@ -5,8 +5,8 @@ const AppContext = struct {
     config_path: []const u8,
 };
 
-pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) anyerror!void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -54,13 +54,17 @@ pub fn main() anyerror!void {
         .variadic = true,
     });
 
-    try root_command.run(&app_context);
+    try root_command.run(init.args, &app_context);
 }
 
 fn rootExec(ctx: chilli.CommandContext) anyerror!void {
     const app_ctx = ctx.getContextData(AppContext).?;
     const config_slice = try ctx.getFlag("config", []const u8);
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
 
     if (app_ctx.config_path.len > 0) {
         ctx.app_allocator.free(app_ctx.config_path);
@@ -75,7 +79,11 @@ fn rootExec(ctx: chilli.CommandContext) anyerror!void {
 fn runExec(ctx: chilli.CommandContext) anyerror!void {
     const task_name = try ctx.getArg("task-name", []const u8);
     const files = ctx.getArgs("files");
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
 
     try stdout.print("Running task '{s}'...\n", .{task_name});
 

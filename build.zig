@@ -62,17 +62,18 @@ pub fn build(b: *std.Build) void {
 
     // --- Example Setup ---
     const examples_path = "examples";
+    const io = b.graph.io;
     examples_blk: {
         // If the examples directory isn't present (common when used as a dependency),
         // skip setting up example artifacts instead of panicking.
-        var examples_dir = fs.cwd().openDir(examples_path, .{ .iterate = true }) catch |err| {
+        var examples_dir = b.build_root.handle.openDir(io, examples_path, .{ .iterate = true }) catch |err| {
             if (err == error.FileNotFound or err == error.NotDir) break :examples_blk;
             @panic("Can't open 'examples' directory");
         };
-        defer examples_dir.close();
+        defer examples_dir.close(io);
 
         var dir_iter = examples_dir.iterate();
-        while (dir_iter.next() catch @panic("Failed to iterate examples")) |entry| {
+        while (dir_iter.next(io) catch @panic("Failed to iterate examples")) |entry| {
             if (!std.mem.endsWith(u8, entry.name, ".zig")) continue;
 
             const exe_name = fs.path.stem(entry.name);

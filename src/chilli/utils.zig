@@ -51,7 +51,7 @@ pub fn printAlignedCommands(commands: []*command.Command, writer: anytype) !void
             current_width += 4;
         }
 
-        try writer.writeByteNTimes(' ', max_width - current_width + 2);
+        for (0..max_width - current_width + 2) |_| try writer.writeByte(' ');
         try writer.print("{s}\n", .{cmd.options.description});
     }
 }
@@ -82,7 +82,7 @@ pub fn printAlignedFlags(cmd: *const command.Command, writer: anytype) !void {
             current_width = flag.name.len + 8;
         }
 
-        try writer.writeByteNTimes(' ', max_width - current_width + 2);
+        for (0..max_width - current_width + 2) |_| try writer.writeByte(' ');
         try writer.print("{s} [{s}]", .{ flag.description, @tagName(flag.type) });
 
         switch (flag.default_value) {
@@ -104,7 +104,7 @@ pub fn printAlignedPositionalArgs(cmd: *const command.Command, writer: anytype) 
 
     for (cmd.positional_args.items) |arg| {
         try writer.print("  {s}", .{arg.name});
-        try writer.writeByteNTimes(' ', max_width - arg.name.len + 2);
+        for (0..max_width - arg.name.len + 2) |_| try writer.writeByte(' ');
         try writer.print("{s}", .{arg.description});
 
         if (arg.variadic) {
@@ -119,7 +119,7 @@ pub fn printAlignedPositionalArgs(cmd: *const command.Command, writer: anytype) 
 
 /// Prints the full usage line for a command, including its parents.
 pub fn printUsageLine(cmd: *const command.Command, writer: anytype) !void {
-    var parents: std.ArrayList(*command.Command) = .{};
+    var parents: std.ArrayList(*command.Command) = .empty;
     defer parents.deinit(cmd.allocator);
 
     var current_parent = cmd.parent;
@@ -184,12 +184,12 @@ pub fn printSubcommands(cmd: *const command.Command, writer: anytype) !void {
     for (cmd.subcommands.items) |sub| {
         const list = try section_map.getOrPut(sub.options.section);
         if (!list.found_existing) {
-            list.value_ptr.* = .{};
+            list.value_ptr.* = .empty;
         }
         try list.value_ptr.*.append(cmd.allocator, sub);
     }
 
-    var sorted_sections: std.ArrayList([]const u8) = .{};
+    var sorted_sections: std.ArrayList([]const u8) = .empty;
     defer sorted_sections.deinit(cmd.allocator);
     var it = section_map.keyIterator();
     while (it.next()) |key| try sorted_sections.append(cmd.allocator, key.*);

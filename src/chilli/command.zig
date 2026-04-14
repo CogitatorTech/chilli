@@ -38,13 +38,13 @@ pub const Command = struct {
         const command = try allocator.create(Command);
         command.* = Command{
             .options = options,
-            .subcommands = .{},
-            .flags = .{},
-            .positional_args = .{},
+            .subcommands = .empty,
+            .flags = .empty,
+            .positional_args = .empty,
             .parent = null,
             .allocator = allocator,
-            .parsed_flags = .{},
-            .parsed_positionals = .{},
+            .parsed_flags = .empty,
+            .parsed_positionals = .empty,
         };
 
         const help_flag = types.Flag{
@@ -194,8 +194,11 @@ pub const Command = struct {
         if (self.options.version != null) {
             if (current_cmd.getFlagValue("version")) |flag_val| {
                 if (flag_val.Bool) {
-                    const stdout = std.fs.File.stdout().deprecatedWriter();
-                    try stdout.print("{s}\n", .{self.options.version.?});
+                    const io = std.Options.debug_io;
+                    var version_buf: [256]u8 = undefined;
+                    var stdout_fw = std.Io.File.stdout().writer(io, &version_buf);
+                    try stdout_fw.interface.print("{s}\n", .{self.options.version.?});
+                    try stdout_fw.flush();
                     return;
                 }
             }
@@ -276,7 +279,7 @@ pub const Command = struct {
 
     /// The main entry point for running the CLI application.
     /// This function handles process arguments, invokes `execute`, and prints formatted errors.
-    pub fn run(self: *Command, data: ?*anyopaque) !void {
+    pub fn run(self: *Command, args: std.process.Args, data: ?*anyopaque) !void {
         if (self.options.version != null) {
             try self.addFlag(.{
                 .name = "version",
@@ -286,13 +289,23 @@ pub const Command = struct {
             });
         }
 
-        var args = try std.process.argsAlloc(self.allocator);
-        defer std.process.argsFree(self.allocator, args);
+        // Collect process arguments via iterator
+        var args_list: std.ArrayList([]const u8) = .empty;
+        defer args_list.deinit(self.allocator);
+        var args_iter = std.process.Args.Iterator.init(args);
+        defer args_iter.deinit();
+        while (args_iter.next()) |arg| {
+            try args_list.append(self.allocator, arg);
+        }
+        const user_args = if (args_list.items.len > 1) args_list.items[1..] else args_list.items[0..0];
 
         var failed_cmd: ?*const Command = null;
-        self.execute(args[1..], data, &failed_cmd) catch |err| {
-            const stderr = std.fs.File.stderr().deprecatedWriter();
-            handleExecutionError(self.allocator, err, failed_cmd, stderr);
+        self.execute(user_args, data, &failed_cmd) catch |err| {
+            const io = std.Options.debug_io;
+            var stderr_buf: [4096]u8 = undefined;
+            var stderr_fw = std.Io.File.stderr().writer(io, &stderr_buf);
+            handleExecutionError(self.allocator, err, failed_cmd, &stderr_fw.interface);
+            stderr_fw.flush() catch {};
             std.process.exit(1);
         };
     }
@@ -300,7 +313,7 @@ pub const Command = struct {
     /// (private) Constructs the full command path (e.g., "root sub") for use in help and error messages.
     /// The returned slice is allocated using the provided allocator and must be freed by the caller.
     fn getCommandPath(self: *const Command, allocator: std.mem.Allocator) ![]const u8 {
-        var path_parts: std.ArrayList([]const u8) = .{};
+        var path_parts: std.ArrayList([]const u8) = .empty;
         defer path_parts.deinit(allocator);
 
         var current: ?*const Command = self;
@@ -378,7 +391,10 @@ pub const Command = struct {
 
     /// Prints a formatted help message for the command to standard output.
     pub fn printHelp(self: *const Command) !void {
-        const stdout = std.fs.File.stdout().deprecatedWriter();
+        const io = std.Options.debug_io;
+        var buf: [4096]u8 = undefined;
+        var file_writer = std.Io.File.stdout().writer(io, &buf);
+        const stdout = &file_writer.interface;
         try stdout.print("{s}{s}{s}\n", .{ utils.styles.BOLD, self.options.description, utils.styles.RESET });
 
         if (self.options.version) |version| {
@@ -404,6 +420,7 @@ pub const Command = struct {
         if (self.subcommands.items.len > 0) {
             try utils.printSubcommands(self, stdout);
         }
+        try file_writer.flush();
     }
 };
 

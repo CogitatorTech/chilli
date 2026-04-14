@@ -82,8 +82,8 @@ pub const CommandContext = struct {
 
         // 3. Check for a value from an environment variable.
         if (flag_def.env_var) |env_name| {
-            if (std.process.getEnvVarOwned(self.tmp_allocator, env_name) catch null) |env_val_str| {
-                defer self.tmp_allocator.free(env_val_str);
+            const environ = std.Options.debug_threaded_io.?.environ.process_environ;
+            if (std.process.Environ.getPosix(environ, env_name)) |env_val_str| {
                 const env_value = try types.parseValue(flag_def.type, env_val_str);
                 return castFlagValueTo(env_value, T, "flag", name, .environment);
             }

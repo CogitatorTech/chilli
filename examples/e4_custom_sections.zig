@@ -5,8 +5,8 @@ fn dummyExec(ctx: chilli.CommandContext) !void {
     try ctx.command.printHelp();
 }
 
-pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) anyerror!void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -56,7 +56,7 @@ pub fn main() anyerror!void {
     });
     try root_cmd.addSubcommand(cmd_other);
 
-    try root_cmd.run(null);
+    try root_cmd.run(init.args, null);
 }
 
 // Example Invocation

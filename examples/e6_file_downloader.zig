@@ -49,7 +49,7 @@ fn downloadExec(ctx: chilli.CommandContext) !void {
     var buf: [8192]u8 = undefined;
     var body_reader = response.reader(&buf);
 
-    var response_body: std.ArrayList(u8) = .{};
+    var response_body: std.ArrayList(u8) = .empty;
     defer response_body.deinit(ctx.app_allocator);
 
     try body_reader.appendRemainingUnlimited(ctx.app_allocator, &response_body);
@@ -59,9 +59,13 @@ fn downloadExec(ctx: chilli.CommandContext) !void {
     }
 
     // Write to file
-    const file = try std.fs.cwd().createFile(output_path, .{});
-    defer file.close();
-    try file.writeAll(response_body.items);
+    const io = std.Options.debug_io;
+    const file = try std.Io.Dir.cwd().createFile(io, output_path, .{});
+    defer file.close(io);
+    var file_buf: [8192]u8 = undefined;
+    var file_writer = file.writer(io, &file_buf);
+    try file_writer.interface.writeAll(response_body.items);
+    try file_writer.flush();
 
     std.debug.print("Download complete: {s} ({d} bytes)\n", .{ output_path, response_body.items.len });
 }
@@ -87,12 +91,12 @@ fn getFilenameFromUrl(allocator: std.mem.Allocator, url: []const u8) ![]const u8
     return allocator.dupe(u8, filename);
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) !void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var client = std.http.Client{ .allocator = allocator };
+    var client = std.http.Client{ .allocator = allocator, .io = std.Options.debug_io };
     defer client.deinit();
 
     var download_ctx = DownloadContext{
@@ -136,7 +140,7 @@ pub fn main() !void {
 
     try root_cmd.addSubcommand(download_cmd);
 
-    try root_cmd.run(&download_ctx);
+    try root_cmd.run(init.args, &download_ctx);
 }
 
 // Example Invocations
