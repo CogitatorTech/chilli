@@ -104,16 +104,16 @@ fn greet(ctx: chilli.CommandContext) !void {
     const name = try ctx.getFlag("name", []const u8);
     const excitement = try ctx.getFlag("excitement", u32);
 
-    std.print("Hello, {s}", .{name});
+    std.debug.print("Hello, {s}", .{name});
     var i: u32 = 0;
     while (i < excitement) : (i += 1) {
-        std.print("!", .{});
+        std.debug.print("!", .{});
     }
-    std.print("\n", .{});
+    std.debug.print("\n", .{});
 }
 
-pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) anyerror!void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -142,7 +142,7 @@ pub fn main() anyerror!void {
     });
 
     // Hand control over to the framework
-    try root_cmd.run(null);
+    try root_cmd.run(init.args, null);
 }
 ```
 
