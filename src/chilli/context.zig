@@ -182,16 +182,16 @@ pub const CommandContext = struct {
             return allocator.alloc(T, 0);
         }
 
-        var results = std.ArrayList(T).init(allocator);
-        errdefer results.deinit();
+        var results: std.ArrayList(T) = .empty;
+        errdefer results.deinit(allocator);
 
         for (string_args) |raw_value| {
             const parsed_value = try types.parseValue(found_arg.type, raw_value);
             const casted_value = try castFlagValueTo(parsed_value, T, "variadic argument", name, .parsed);
-            try results.append(casted_value);
+            try results.append(allocator, casted_value);
         }
 
-        return results.toOwnedSlice();
+        return results.toOwnedSlice(allocator);
     }
 
     /// Retrieves a pointer to the shared application context data.
@@ -210,7 +210,7 @@ const process = std.process;
 
 fn dummyExec(_: CommandContext) !void {}
 
-test "context: getFlag from environment variable" {
+test "context: getFlag falls back to default when no env var set" {
     const allocator = testing.allocator;
     var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
     defer cmd.deinit();
@@ -219,18 +219,15 @@ test "context: getFlag from environment variable" {
         .name = "config",
         .type = .String,
         .default_value = .{ .String = "default.conf" },
-        .env_var = "TEST_APP_CONFIG",
+        .env_var = "CHILLI_TEST_UNSET_VAR_12345",
         .description = "",
     });
 
-    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = &cmd, .data = null };
+    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = cmd, .data = null };
 
-    // Set env var and check if getFlag reads it
-    try process.setEnvVar("TEST_APP_CONFIG", "env.conf");
-    defer process.unsetEnvVar("TEST_APP_CONFIG") catch {};
-
+    // With no env var set and no parsed flag, should return the default
     const config_path = try ctx.getFlag("config", []const u8);
-    try testing.expectEqualStrings("env.conf", config_path);
+    try testing.expectEqualStrings("default.conf", config_path);
 }
 
 test "context: getFlag integer range error" {
@@ -240,9 +237,9 @@ test "context: getFlag integer range error" {
     try cmd.addFlag(.{ .name = "count", .type = .Int, .default_value = .{ .Int = 0 }, .description = "" });
 
     // Parsed value is 70000, which does not fit in i16
-    try cmd.parsed_flags.append(.{ .name = "count", .value = .{ .Int = 70000 } });
+    try cmd.parsed_flags.append(allocator, .{ .name = "count", .value = .{ .Int = 70000 } });
 
-    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = &cmd, .data = null };
+    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = cmd, .data = null };
     try testing.expectError(errors.Error.IntegerValueOutOfRange, ctx.getFlag("count", i16));
 }
 
@@ -253,9 +250,9 @@ test "context: getArgs for variadic" {
     try cmd.addPositional(.{ .name = "command", .is_required = true, .description = "" });
     try cmd.addPositional(.{ .name = "files", .variadic = true, .description = "" });
 
-    try cmd.parsed_positionals.appendSlice(&[_][]const u8{ "run", "file1.zig", "file2.zig" });
+    try cmd.parsed_positionals.appendSlice(allocator, &[_][]const u8{ "run", "file1.zig", "file2.zig" });
 
-    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = &cmd, .data = null };
+    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = cmd, .data = null };
     const files = ctx.getArgs("files");
 
     try testing.expectEqual(@as(usize, 2), files.len);
@@ -269,11 +266,11 @@ test "context: typed getArg" {
     defer cmd.deinit();
     try cmd.addPositional(.{ .name = "req_str", .is_required = true, .description = "" });
     try cmd.addPositional(.{ .name = "opt_int", .description = "", .type = .Int, .default_value = .{ .Int = 123 } });
-    try cmd.parsed_positionals.append("hello");
+    try cmd.parsed_positionals.append(allocator, "hello");
     const ctx = CommandContext{
         .app_allocator = allocator,
         .tmp_allocator = allocator,
-        .command = &cmd,
+        .command = cmd,
         .data = null,
     };
     try std.testing.expectEqualStrings("hello", try ctx.getArg("req_str", []const u8));
@@ -291,11 +288,11 @@ test "context: getFlag" {
     try cmd.addFlag(.{ .name = "verbose", .type = .Bool, .default_value = .{ .Bool = false }, .description = "" });
     try cmd.addFlag(.{ .name = "count", .type = .Int, .default_value = .{ .Int = 42 }, .description = "" });
     try cmd.addFlag(.{ .name = "pi", .type = .Float, .default_value = .{ .Float = 3.14 }, .description = "" });
-    try cmd.parsed_flags.append(.{ .name = "verbose", .value = .{ .Bool = true } });
+    try cmd.parsed_flags.append(allocator, .{ .name = "verbose", .value = .{ .Bool = true } });
     const ctx = CommandContext{
         .app_allocator = allocator,
         .tmp_allocator = allocator,
-        .command = &cmd,
+        .command = cmd,
         .data = null,
     };
     try std.testing.expect(try ctx.getFlag("verbose", bool));
@@ -310,9 +307,9 @@ test "context: getArgsAs for typed variadic" {
     var cmd_int = try command.Command.init(allocator, .{ .name = "test-int", .description = "", .exec = dummyExec });
     defer cmd_int.deinit();
     try cmd_int.addPositional(.{ .name = "numbers", .type = .Int, .variadic = true, .description = "" });
-    try cmd_int.parsed_positionals.appendSlice(&[_][]const u8{ "10", "-20", "300" });
+    try cmd_int.parsed_positionals.appendSlice(allocator, &[_][]const u8{ "10", "-20", "300" });
 
-    var ctx_int = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = &cmd_int, .data = null };
+    var ctx_int = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = cmd_int, .data = null };
     const numbers = try ctx_int.getArgsAs(i64, "numbers", allocator);
     defer allocator.free(numbers);
 
@@ -326,6 +323,49 @@ test "context: getArgsAs for typed variadic" {
 
     // Test case 3: Parse error
     cmd_int.parsed_positionals.clearRetainingCapacity();
-    try cmd_int.parsed_positionals.append("not-a-number");
+    try cmd_int.parsed_positionals.append(allocator, "not-a-number");
     try testing.expectError(error.InvalidCharacter, ctx_int.getArgsAs(i64, "numbers", allocator));
+}
+
+test "context: getFlag reads env var via debug_threaded_io environ" {
+    // Verify that the Environ.getPosix lookup through debug_threaded_io
+    // can find a real environment variable (PATH is always set on POSIX).
+    const allocator = testing.allocator;
+    var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addFlag(.{
+        .name = "search-path",
+        .type = .String,
+        .default_value = .{ .String = "fallback" },
+        .env_var = "PATH",
+        .description = "",
+    });
+
+    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = cmd, .data = null };
+
+    // PATH is always set; getFlag should return its value, not the default
+    const path_value = try ctx.getFlag("search-path", []const u8);
+    try testing.expect(path_value.len > 0);
+    try testing.expect(!std.mem.eql(u8, path_value, "fallback"));
+}
+
+test "context: getFlag env var lookup returns default for unset var" {
+    const allocator = testing.allocator;
+    var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addFlag(.{
+        .name = "config",
+        .type = .String,
+        .default_value = .{ .String = "default.conf" },
+        .env_var = "CHILLI_TEST_UNSET_VAR_XXXXXXX",
+        .description = "",
+    });
+
+    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = cmd, .data = null };
+
+    // Unset var should fall back to default
+    const config_path = try ctx.getFlag("config", []const u8);
+    try testing.expectEqualStrings("default.conf", config_path);
 }

@@ -206,6 +206,90 @@ pub fn printSubcommands(cmd: *const command.Command, writer: anytype) !void {
 
 // Tests for the `utils` module
 
+const TestBufWriter = struct {
+    buf: []u8,
+    pos: usize = 0,
+
+    fn print(self: *TestBufWriter, comptime fmt: []const u8, args: anytype) error{NoSpaceLeft}!void {
+        const result = std.fmt.bufPrint(self.buf[self.pos..], fmt, args) catch return error.NoSpaceLeft;
+        self.pos += result.len;
+    }
+
+    fn writeByte(self: *TestBufWriter, byte: u8) error{NoSpaceLeft}!void {
+        if (self.pos >= self.buf.len) return error.NoSpaceLeft;
+        self.buf[self.pos] = byte;
+        self.pos += 1;
+    }
+
+    fn getWritten(self: TestBufWriter) []const u8 {
+        return self.buf[0..self.pos];
+    }
+};
+
+test "utils: printAlignedFlags produces correct padding" {
+    const allocator = std.testing.allocator;
+    var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addFlag(.{
+        .name = "verbose",
+        .shortcut = 'v',
+        .description = "Enable verbose output",
+        .type = .Bool,
+        .default_value = .{ .Bool = false },
+    });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedFlags(cmd, &writer);
+
+    const output = writer.getWritten();
+    // Should contain the flag names and descriptions with space padding between them
+    try std.testing.expect(std.mem.indexOf(u8, output, "--help") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--verbose") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "Enable verbose output") != null);
+    // Verify padding: spaces between flag name and description
+    try std.testing.expect(std.mem.indexOf(u8, output, "  ") != null);
+}
+
+test "utils: printAlignedPositionalArgs produces correct padding" {
+    const allocator = std.testing.allocator;
+    var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addPositional(.{ .name = "input", .description = "Input file", .is_required = true });
+    try cmd.addPositional(.{ .name = "output-file", .description = "Output file", .is_required = false, .default_value = .{ .String = "out.txt" } });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedPositionalArgs(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "input") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "output-file") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(required)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(optional)") != null);
+}
+
+test "utils: printUsageLine produces correct output" {
+    const allocator = std.testing.allocator;
+    var cmd = try command.Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addPositional(.{ .name = "file", .description = "A file", .is_required = true });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printUsageLine(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "app") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "<file>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "[flags]") != null);
+}
+
+fn dummyExec(_: @import("context.zig").CommandContext) !void {}
+
 test "utils: parseBool" {
     try std.testing.expect(try parseBool("true"));
     try std.testing.expect(try parseBool("TRUE"));

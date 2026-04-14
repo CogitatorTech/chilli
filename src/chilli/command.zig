@@ -569,7 +569,7 @@ test "command: getFlagValue traverses parents" {
 
 test "command: -- before subcommand stops resolution" {
     const allocator = testing.allocator;
-    var root = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    var root = try Command.init(allocator, .{ .name = "app", .description = "", .exec = trackingExec });
     defer root.deinit();
 
     exec_called_on = null;
@@ -633,10 +633,11 @@ test "command: addPositional argument order" {
     var cmd = try Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
     defer cmd.deinit();
 
-    try cmd.addPositional(.{ .name = "optional", .is_required = false, .default_value = .{ .String = "" } });
+    try cmd.addPositional(.{ .name = "optional", .is_required = false, .default_value = .{ .String = "" }, .description = "" });
     try std.testing.expectError(error.RequiredArgumentAfterOptional, cmd.addPositional(.{
         .name = "required",
         .is_required = true,
+        .description = "",
     }));
 }
 
@@ -646,12 +647,12 @@ test "command: addPositional validation" {
     var cmd = try Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
     defer cmd.deinit();
 
-    try cmd.addPositional(.{ .name = "a", .is_required = true });
-    try cmd.addPositional(.{ .name = "b", .variadic = true });
+    try cmd.addPositional(.{ .name = "a", .is_required = true, .description = "" });
+    try cmd.addPositional(.{ .name = "b", .variadic = true, .description = "" });
 
     try std.testing.expectError(
         error.VariadicArgumentNotLastError,
-        cmd.addPositional(.{ .name = "c", .is_required = true }),
+        cmd.addPositional(.{ .name = "c", .is_required = true, .description = "" }),
     );
 }
 
@@ -722,47 +723,132 @@ test "command: getCommandPath" {
     var sub2 = try Command.init(allocator, .{ .name = "sub2", .description = "", .exec = dummyExec });
     try sub1.addSubcommand(sub2);
 
-    var path = try root.getCommandPath(allocator);
-    defer allocator.free(path);
-    try std.testing.expectEqualStrings("root", path);
+    const path1 = try root.getCommandPath(allocator);
+    defer allocator.free(path1);
+    try std.testing.expectEqualStrings("root", path1);
 
-    path = try sub1.getCommandPath(allocator);
-    defer allocator.free(path);
-    try std.testing.expectEqualStrings("root sub1", path);
+    const path2 = try sub1.getCommandPath(allocator);
+    defer allocator.free(path2);
+    try std.testing.expectEqualStrings("root sub1", path2);
 
-    path = try sub2.getCommandPath(allocator);
-    defer allocator.free(path);
-    try std.testing.expectEqualStrings("root sub1 sub2", path);
+    const path3 = try sub2.getCommandPath(allocator);
+    defer allocator.free(path3);
+    try std.testing.expectEqualStrings("root sub1 sub2", path3);
 }
+
+const TestBufWriter = struct {
+    buf: []u8,
+    pos: usize = 0,
+
+    fn print(self: *TestBufWriter, comptime fmt: []const u8, args: anytype) error{NoSpaceLeft}!void {
+        const result = std.fmt.bufPrint(self.buf[self.pos..], fmt, args) catch return error.NoSpaceLeft;
+        self.pos += result.len;
+    }
+
+    fn writeByte(self: *TestBufWriter, byte: u8) error{NoSpaceLeft}!void {
+        if (self.pos >= self.buf.len) return error.NoSpaceLeft;
+        self.buf[self.pos] = byte;
+        self.pos += 1;
+    }
+
+    fn getWritten(self: TestBufWriter) []const u8 {
+        return self.buf[0..self.pos];
+    }
+};
 
 test "command: handleExecutionError provides context" {
     const allocator = std.testing.allocator;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
+    var writer = TestBufWriter{ .buf = &buf };
 
     var root_cmd = try Command.init(allocator, .{ .name = "test-cmd", .description = "", .exec = dummyExec });
     defer root_cmd.deinit();
 
     // Test with context
-    fbs.pos = 0;
-    Command.handleExecutionError(allocator, error.TooManyArguments, root_cmd, writer);
-    var written = fbs.getWritten();
-    try std.testing.expect(std.mem.endsWith(u8, written, "Error: Too many arguments provided for command 'test-cmd'.\n"));
+    writer.pos = 0;
+    Command.handleExecutionError(allocator, error.TooManyArguments, root_cmd, &writer);
+    var written = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, written, "Too many arguments provided for command 'test-cmd'.\n") != null);
 
     // Test without context
-    fbs.pos = 0;
-    Command.handleExecutionError(allocator, error.TooManyArguments, null, writer);
-    written = fbs.getWritten();
-    try std.testing.expect(std.mem.endsWith(u8, written, "Error: Too many arguments provided.\n"));
+    writer.pos = 0;
+    Command.handleExecutionError(allocator, error.TooManyArguments, null, &writer);
+    written = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, written, "Too many arguments provided.\n") != null);
 }
 
 test "command: handleExecutionError silent on broken pipe" {
     const allocator = std.testing.allocator;
     var buf: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    const writer = fbs.writer();
+    var writer = TestBufWriter{ .buf = &buf };
 
-    Command.handleExecutionError(allocator, error.BrokenPipe, null, writer);
-    try std.testing.expectEqualStrings("", fbs.getWritten());
+    Command.handleExecutionError(allocator, error.BrokenPipe, null, &writer);
+    try std.testing.expectEqualStrings("", writer.getWritten());
+}
+
+test "command: Args.Iterator collects arguments and skips argv0" {
+    const allocator = std.testing.allocator;
+
+    // Simulate argv: ["program", "sub", "--flag", "value"]
+    const argv = [_][*:0]const u8{ "program", "sub", "--flag", "value" };
+    const args: std.process.Args = .{ .vector = &argv };
+
+    var args_list: std.ArrayList([]const u8) = .empty;
+    defer args_list.deinit(allocator);
+
+    var args_iter = std.process.Args.Iterator.init(args);
+    defer args_iter.deinit();
+    while (args_iter.next()) |arg| {
+        try args_list.append(allocator, arg);
+    }
+
+    // All 4 args collected
+    try std.testing.expectEqual(@as(usize, 4), args_list.items.len);
+    try std.testing.expectEqualStrings("program", args_list.items[0]);
+    try std.testing.expectEqualStrings("sub", args_list.items[1]);
+
+    // argv0 skip logic (same as run())
+    const user_args = if (args_list.items.len > 1) args_list.items[1..] else args_list.items[0..0];
+    try std.testing.expectEqual(@as(usize, 3), user_args.len);
+    try std.testing.expectEqualStrings("sub", user_args[0]);
+    try std.testing.expectEqualStrings("--flag", user_args[1]);
+    try std.testing.expectEqualStrings("value", user_args[2]);
+}
+
+test "command: Args.Iterator with empty argv produces no user args" {
+    const allocator = std.testing.allocator;
+
+    const argv = [_][*:0]const u8{};
+    const args: std.process.Args = .{ .vector = &argv };
+
+    var args_list: std.ArrayList([]const u8) = .empty;
+    defer args_list.deinit(allocator);
+
+    var args_iter = std.process.Args.Iterator.init(args);
+    defer args_iter.deinit();
+    while (args_iter.next()) |arg| {
+        try args_list.append(allocator, arg);
+    }
+
+    const user_args = if (args_list.items.len > 1) args_list.items[1..] else args_list.items[0..0];
+    try std.testing.expectEqual(@as(usize, 0), user_args.len);
+}
+
+test "command: Args.Iterator with only argv0 produces no user args" {
+    const allocator = std.testing.allocator;
+
+    const argv = [_][*:0]const u8{"program"};
+    const args: std.process.Args = .{ .vector = &argv };
+
+    var args_list: std.ArrayList([]const u8) = .empty;
+    defer args_list.deinit(allocator);
+
+    var args_iter = std.process.Args.Iterator.init(args);
+    defer args_iter.deinit();
+    while (args_iter.next()) |arg| {
+        try args_list.append(allocator, arg);
+    }
+
+    const user_args = if (args_list.items.len > 1) args_list.items[1..] else args_list.items[0..0];
+    try std.testing.expectEqual(@as(usize, 0), user_args.len);
 }

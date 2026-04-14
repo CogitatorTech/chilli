@@ -227,7 +227,7 @@ test "parser: short flag with attached value" {
     });
 
     var it = ArgIterator.init(&[_][]const u8{"-otest.txt"});
-    try parseArgsAndFlags(&cmd, &it);
+    try parseArgsAndFlags(cmd, &it);
 
     try std.testing.expectEqual(1, cmd.parsed_flags.items.len);
     try std.testing.expectEqualStrings("output", cmd.parsed_flags.items[0].name);
@@ -235,7 +235,7 @@ test "parser: short flag with attached value" {
     const value = cmd.parsed_flags.items[0].value;
     switch (value) {
         .String => |s| try std.testing.expectEqualStrings("test.txt", s),
-        else => std.testing.panic("Expected string value, got {any}", .{value}),
+        else => std.debug.panic("Expected string value, got {any}", .{value}),
     }
 }
 
@@ -246,14 +246,14 @@ test "parser: long flag formats" {
 
     // Test --flag=value
     var it1 = ArgIterator.init(&[_][]const u8{"--output=file.txt"});
-    try parseArgsAndFlags(&cmd, &it1);
+    try parseArgsAndFlags(cmd, &it1);
     try testing.expectEqualStrings("output", cmd.parsed_flags.items[0].name);
     try testing.expectEqualStrings("file.txt", cmd.parsed_flags.items[0].value.String);
     cmd.parsed_flags.shrinkRetainingCapacity(0);
 
     // Test --flag value
     var it2 = ArgIterator.init(&[_][]const u8{ "--output", "file.txt" });
-    try parseArgsAndFlags(&cmd, &it2);
+    try parseArgsAndFlags(cmd, &it2);
     try testing.expectEqualStrings("output", cmd.parsed_flags.items[0].name);
     try testing.expectEqualStrings("file.txt", cmd.parsed_flags.items[0].value.String);
 }
@@ -265,14 +265,14 @@ test "parser: short flag formats" {
 
     // Test -f value
     var it1 = ArgIterator.init(&[_][]const u8{ "-o", "file.txt" });
-    try parseArgsAndFlags(&cmd, &it1);
+    try parseArgsAndFlags(cmd, &it1);
     try testing.expectEqualStrings("output", cmd.parsed_flags.items[0].name);
     try testing.expectEqualStrings("file.txt", cmd.parsed_flags.items[0].value.String);
     cmd.parsed_flags.shrinkRetainingCapacity(0);
 
     // Test grouped booleans
     var it2 = ArgIterator.init(&[_][]const u8{"-vf"});
-    try parseArgsAndFlags(&cmd, &it2);
+    try parseArgsAndFlags(cmd, &it2);
     try testing.expectEqual(2, cmd.parsed_flags.items.len);
     try testing.expectEqualStrings("verbose", cmd.parsed_flags.items[0].name);
     try testing.expect(cmd.parsed_flags.items[0].value.Bool);
@@ -282,7 +282,7 @@ test "parser: short flag formats" {
 
     // Test grouped booleans with value-taking flag at the end
     var it3 = ArgIterator.init(&[_][]const u8{ "-vfo", "file.txt" });
-    try parseArgsAndFlags(&cmd, &it3);
+    try parseArgsAndFlags(cmd, &it3);
     try testing.expectEqual(3, cmd.parsed_flags.items.len);
     try testing.expectEqualStrings("verbose", cmd.parsed_flags.items[0].name);
     try testing.expectEqualStrings("force", cmd.parsed_flags.items[1].name);
@@ -296,7 +296,7 @@ test "parser: -- terminator" {
     defer cmd.deinit();
 
     var it = ArgIterator.init(&[_][]const u8{ "--verbose", "--", "--output", "-f" });
-    try parseArgsAndFlags(&cmd, &it);
+    try parseArgsAndFlags(cmd, &it);
 
     try testing.expectEqual(1, cmd.parsed_flags.items.len);
     try testing.expectEqualStrings("verbose", cmd.parsed_flags.items[0].name);
@@ -313,15 +313,15 @@ test "parser: error conditions" {
 
     // Unknown long flag
     var it1 = ArgIterator.init(&[_][]const u8{"--nonexistent"});
-    try testing.expectError(errors.Error.UnknownFlag, parseArgsAndFlags(&cmd, &it1));
+    try testing.expectError(errors.Error.UnknownFlag, parseArgsAndFlags(cmd, &it1));
 
     // Unknown short flag
     var it2 = ArgIterator.init(&[_][]const u8{"-x"});
-    try testing.expectError(errors.Error.UnknownFlag, parseArgsAndFlags(&cmd, &it2));
+    try testing.expectError(errors.Error.UnknownFlag, parseArgsAndFlags(cmd, &it2));
 
     // Missing value
     var it3 = ArgIterator.init(&[_][]const u8{"--output"});
-    try testing.expectError(errors.Error.MissingFlagValue, parseArgsAndFlags(&cmd, &it3));
+    try testing.expectError(errors.Error.MissingFlagValue, parseArgsAndFlags(cmd, &it3));
 }
 
 test "parser: argument validation" {
@@ -334,17 +334,17 @@ test "parser: argument validation" {
 
     // Missing required
     cmd.parsed_positionals.clearRetainingCapacity();
-    try testing.expectError(errors.Error.MissingRequiredArgument, validateArgs(&cmd));
+    try testing.expectError(errors.Error.MissingRequiredArgument, validateArgs(cmd));
 
     // Too many arguments
     cmd.parsed_positionals.clearRetainingCapacity();
-    try cmd.parsed_positionals.appendSlice(&[_][]const u8{ "a", "b", "c" });
-    try testing.expectError(errors.Error.TooManyArguments, validateArgs(&cmd));
+    try cmd.parsed_positionals.appendSlice(allocator, &[_][]const u8{ "a", "b", "c" });
+    try testing.expectError(errors.Error.TooManyArguments, validateArgs(cmd));
 
     // Correct number
     cmd.parsed_positionals.clearRetainingCapacity();
-    try cmd.parsed_positionals.appendSlice(&[_][]const u8{ "a", "b" });
-    try validateArgs(&cmd);
+    try cmd.parsed_positionals.appendSlice(allocator, &[_][]const u8{ "a", "b" });
+    try validateArgs(cmd);
 }
 
 test "parser: parseFlagsOnly stops at non-flag argument" {
@@ -353,7 +353,7 @@ test "parser: parseFlagsOnly stops at non-flag argument" {
     defer cmd.deinit();
 
     var it = ArgIterator.init(&[_][]const u8{ "--verbose", "-f", "positional", "--output", "file.txt" });
-    try parseFlagsOnly(&cmd, &it);
+    try parseFlagsOnly(cmd, &it);
 
     // Should have parsed --verbose and -f, then stopped at "positional"
     try testing.expectEqual(2, cmd.parsed_flags.items.len);
@@ -372,7 +372,7 @@ test "parser: parseFlagsOnly stops at -- terminator" {
     defer cmd.deinit();
 
     var it = ArgIterator.init(&[_][]const u8{ "--verbose", "--", "--force" });
-    try parseFlagsOnly(&cmd, &it);
+    try parseFlagsOnly(cmd, &it);
 
     // Should have parsed --verbose, then stopped at --
     try testing.expectEqual(1, cmd.parsed_flags.items.len);
@@ -389,7 +389,7 @@ test "parser: parseFlagsOnly consumes flag values" {
 
     // --output takes a value; parseFlagsOnly must consume both the flag and its value
     var it = ArgIterator.init(&[_][]const u8{ "--output", "file.txt", "subcmd" });
-    try parseFlagsOnly(&cmd, &it);
+    try parseFlagsOnly(cmd, &it);
 
     try testing.expectEqual(1, cmd.parsed_flags.items.len);
     try testing.expectEqualStrings("output", cmd.parsed_flags.items[0].name);
@@ -405,7 +405,7 @@ test "parser: parseFlagsOnly with --flag=value syntax" {
     defer cmd.deinit();
 
     var it = ArgIterator.init(&[_][]const u8{ "--output=file.txt", "subcmd" });
-    try parseFlagsOnly(&cmd, &it);
+    try parseFlagsOnly(cmd, &it);
 
     try testing.expectEqual(1, cmd.parsed_flags.items.len);
     try testing.expectEqualStrings("file.txt", cmd.parsed_flags.items[0].value.String);
