@@ -7,7 +7,7 @@
 <h2>Chilli</h2>
 
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/chilli/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/actions/workflows/tests.yml)
-[![Zig Version](https://img.shields.io/badge/Zig-0.15.2-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download)
+[![Zig Version](https://img.shields.io/badge/Zig-0.16.0-orange?logo=zig&labelColor=282c34)](https://ziglang.org/download)
 [![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/chilli)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/chilli/tree/main/examples)
 [![Release](https://img.shields.io/github/release/CogitatorTech/chilli.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/releases/latest)
@@ -150,7 +150,7 @@ You can now run your CLI application with the `--help` flag to see the output be
 
 ```bash
 $ ./your-cli-app --help
-your-cli-app v0.2.3
+your-cli-app v0.3.0
 A new CLI built with Chilli
 
 USAGE:
