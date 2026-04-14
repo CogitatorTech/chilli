@@ -9,7 +9,11 @@ fn addExec(ctx: CommandContext) !void {
     const a = try ctx.getArg("a", f64);
     const b = try ctx.getArg("b", f64);
     const result = a + b;
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
     try stdout.print("{d} + {d} = {d}\n", .{ a, b, result });
 }
 
@@ -17,7 +21,11 @@ fn subtractExec(ctx: CommandContext) !void {
     const a = try ctx.getArg("a", f64);
     const b = try ctx.getArg("b", f64);
     const result = a - b;
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
     try stdout.print("{d} - {d} = {d}\n", .{ a, b, result });
 }
 
@@ -25,7 +33,11 @@ fn multiplyExec(ctx: CommandContext) !void {
     const a = try ctx.getArg("a", f64);
     const b = try ctx.getArg("b", f64);
     const result = a * b;
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
     try stdout.print("{d} * {d} = {d}\n", .{ a, b, result });
 }
 
@@ -43,8 +55,8 @@ fn makeOperationCmd(
     return cmd;
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) !void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -77,7 +89,7 @@ pub fn main() !void {
     try root_cmd.addSubcommand(subtract_cmd);
     try root_cmd.addSubcommand(multiply_cmd);
 
-    try root_cmd.run(null);
+    try root_cmd.run(init.args, null);
 }
 
 // Example Invocations

@@ -7,18 +7,26 @@ fn rootExec(ctx: chilli.CommandContext) !void {
 
 fn dbMigrateExec(ctx: chilli.CommandContext) !void {
     _ = ctx;
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
     try stdout.print("Running database migrations...\n", .{});
 }
 
 fn dbSeedExec(ctx: chilli.CommandContext) !void {
     const file = try ctx.getArg("file", []const u8);
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
     try stdout.print("Seeding database from file: {s}\n", .{file});
 }
 
-pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) anyerror!void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
@@ -56,7 +64,7 @@ pub fn main() anyerror!void {
         .is_required = true,
     });
 
-    try root_cmd.run(null);
+    try root_cmd.run(init.args, null);
 }
 
 // Example Invocations

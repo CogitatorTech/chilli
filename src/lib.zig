@@ -14,3 +14,7 @@ pub const PositionalArg = @import("chilli/types.zig").PositionalArg;
 pub const CommandContext = @import("chilli/context.zig").CommandContext;
 pub const styles = @import("chilli/utils.zig").styles;
 pub const Error = @import("chilli/errors.zig").Error;
+
+test {
+    @import("std").testing.refAllDecls(@This());
+}

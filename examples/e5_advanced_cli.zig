@@ -29,7 +29,11 @@ fn addExec(ctx: chilli.CommandContext) !void {
     const precision = try ctx.getFlag("precision", f64);
     const result = @as(f64, @floatFromInt(a)) + @as(f64, @floatFromInt(b));
 
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
     const precision_int: u32 = @intFromFloat(@max(0.0, @min(precision, 20.0)));
 
     var buf: [64]u8 = undefined;
@@ -43,18 +47,22 @@ fn addExec(ctx: chilli.CommandContext) !void {
 
 fn greetExec(ctx: chilli.CommandContext) !void {
     const name = try ctx.getArg("name", []const u8);
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const io = std.Options.debug_io;
+    var stdout_buf: [4096]u8 = undefined;
+    var stdout_fw = std.Io.File.stdout().writer(io, &stdout_buf);
+    defer stdout_fw.flush() catch {};
+    const stdout = &stdout_fw.interface;
     try stdout.print("Hello, {s}!\n", .{name});
 }
 
-pub fn main() anyerror!void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init.Minimal) anyerror!void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     var app_context = AppContext{
         .log_level = 0,
-        .start_time = std.time.timestamp(),
+        .start_time = 0,
     };
 
     var root_cmd = try chilli.Command.init(allocator, .{
@@ -107,7 +115,7 @@ pub fn main() anyerror!void {
         .default_value = .{ .String = "World" },
     });
 
-    try root_cmd.run(&app_context);
+    try root_cmd.run(init.args, &app_context);
 }
 
 // Example Invocations
