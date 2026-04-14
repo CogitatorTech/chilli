@@ -787,6 +787,10 @@ test "command: handleExecutionError silent on broken pipe" {
 }
 
 test "command: Args.Iterator collects arguments and skips argv0" {
+    // Args.Vector is platform-specific: [*:0]const u8 on POSIX, []const u16 on Windows.
+    // This test constructs a POSIX-style argv directly, so it only runs on POSIX targets.
+    if (comptime @import("builtin").os.tag == .windows) return;
+
     const allocator = std.testing.allocator;
 
     // Simulate argv: ["program", "sub", "--flag", "value"]
@@ -816,6 +820,8 @@ test "command: Args.Iterator collects arguments and skips argv0" {
 }
 
 test "command: Args.Iterator with empty argv produces no user args" {
+    if (comptime @import("builtin").os.tag == .windows) return;
+
     const allocator = std.testing.allocator;
 
     const argv = [_][*:0]const u8{};
@@ -835,6 +841,8 @@ test "command: Args.Iterator with empty argv produces no user args" {
 }
 
 test "command: Args.Iterator with only argv0 produces no user args" {
+    if (comptime @import("builtin").os.tag == .windows) return;
+
     const allocator = std.testing.allocator;
 
     const argv = [_][*:0]const u8{"program"};
