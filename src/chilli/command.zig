@@ -2,9 +2,32 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const context = @import("context.zig");
-const utils = @import("utils.zig");
+const styles = @import("styles.zig");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
+
+/// Defines the configuration for a `Command`.
+///
+/// All string-slice fields (`name`, `description`, `version`, `section`, and
+/// the entries of `aliases`) are borrowed by the `Command`, not copied. They
+/// must remain valid for the lifetime of the command tree.
+pub const CommandOptions = struct {
+    /// The primary name of the command, used to invoke it.
+    name: []const u8,
+    /// A short description of the command's purpose, shown in help messages.
+    description: []const u8,
+    /// The function to execute when this command is run.
+    exec: *const fn (ctx: context.CommandContext) anyerror!void,
+    /// An optional list of alternative names for the command.
+    aliases: ?[]const []const u8 = null,
+    /// An optional single-character shortcut for the command (e.g., 'c').
+    shortcut: ?u8 = null,
+    /// An optional version string for the application. If provided on the root command,
+    /// an automatic `--version` flag will be available.
+    version: ?[]const u8 = null,
+    /// The name of the section under which this command should be grouped in a parent's help message.
+    section: []const u8 = "Commands",
+};
 
 /// Represents a single command in a CLI application.
 ///
@@ -19,7 +42,7 @@ const errors = @import("errors.zig");
 /// threads on the same `Command` instance concurrently will result in a data race
 /// and undefined behavior.
 pub const Command = struct {
-    options: types.CommandOptions,
+    options: CommandOptions,
     subcommands: std.ArrayList(*Command),
     flags: std.ArrayList(types.Flag),
     positional_args: std.ArrayList(types.PositionalArg),
@@ -30,7 +53,7 @@ pub const Command = struct {
 
     /// Initializes a new command.
     /// Panics if the provided command name is empty.
-    pub fn init(allocator: std.mem.Allocator, options: types.CommandOptions) !*Command {
+    pub fn init(allocator: std.mem.Allocator, options: CommandOptions) !*Command {
         if (options.name.len == 0) {
             std.debug.panic("Command name cannot be empty.", .{});
         }
@@ -271,8 +294,8 @@ pub const Command = struct {
         failed_cmd: ?*const Command,
         writer: anytype,
     ) void {
-        const red = utils.styles.s(utils.styles.RED);
-        const reset = utils.styles.s(utils.styles.RESET);
+        const red = styles.s(styles.RED);
+        const reset = styles.s(styles.RESET);
 
         switch (err) {
             error.BrokenPipe => return, // Exit silently on broken pipe
@@ -442,9 +465,9 @@ pub const Command = struct {
         var buf: [4096]u8 = undefined;
         var file_writer = std.Io.File.stdout().writer(io, &buf);
         const stdout = &file_writer.interface;
-        const bold = utils.styles.s(utils.styles.BOLD);
-        const dim = utils.styles.s(utils.styles.DIM);
-        const reset = utils.styles.s(utils.styles.RESET);
+        const bold = styles.s(styles.BOLD);
+        const dim = styles.s(styles.DIM);
+        const reset = styles.s(styles.RESET);
 
         try stdout.print("{s}{s}{s}\n", .{ bold, self.options.description, reset });
 
@@ -454,26 +477,202 @@ pub const Command = struct {
         try stdout.print("\n", .{});
 
         try stdout.print("{s}Usage:{s}\n", .{ bold, reset });
-        try utils.printUsageLine(self, stdout);
+        try printUsageLine(self, stdout);
 
         if (self.positional_args.items.len > 0) {
             try stdout.print("{s}Arguments:{s}\n", .{ bold, reset });
-            try utils.printAlignedPositionalArgs(self, stdout);
+            try printAlignedPositionalArgs(self, stdout);
             try stdout.print("\n", .{});
         }
 
         if (self.flags.items.len > 0) {
             try stdout.print("{s}Flags:{s}\n", .{ bold, reset });
-            try utils.printAlignedFlags(self, stdout);
+            try printAlignedFlags(self, stdout);
             try stdout.print("\n", .{});
         }
 
         if (self.subcommands.items.len > 0) {
-            try utils.printSubcommands(self, stdout);
+            try printSubcommands(self, stdout);
         }
         try file_writer.flush();
     }
 };
+
+// ============================================================================
+// Help-output printers (private)
+// ============================================================================
+// These used to live in utils.zig. They were moved here because they depend
+// on Command's internals (flags, positional_args, subcommands, parent chain),
+// and keeping them in a separate module created a utils <-> command import
+// cycle that the refactor set out to eliminate. They are intentionally not
+// `pub` — help output is a Command concern, not a public extension point.
+
+fn printAlignedCommands(commands: []*Command, writer: anytype) !void {
+    var max_width: usize = 0;
+    for (commands) |cmd| {
+        var len = cmd.options.name.len;
+        if (cmd.options.shortcut != null) {
+            len += 4; // " (c)"
+        }
+        if (len > max_width) max_width = len;
+    }
+
+    for (commands) |cmd| {
+        try writer.print("  {s}", .{cmd.options.name});
+        var current_width = cmd.options.name.len;
+        if (cmd.options.shortcut) |sc| {
+            try writer.print(" ({c})", .{sc});
+            current_width += 4;
+        }
+
+        for (0..max_width - current_width + 2) |_| try writer.writeByte(' ');
+        try writer.print("{s}\n", .{cmd.options.description});
+    }
+}
+
+fn printAlignedFlags(cmd: *const Command, writer: anytype) !void {
+    var max_width: usize = 0;
+    for (cmd.flags.items) |flag| {
+        if (flag.hidden) continue;
+        const len: usize = if (flag.shortcut != null)
+            // "  -c, --name"
+            flag.name.len + 8
+        else
+            // "      --name"
+            flag.name.len + 8;
+        if (len > max_width) max_width = len;
+    }
+
+    for (cmd.flags.items) |flag| {
+        if (flag.hidden) continue;
+
+        var current_width: usize = undefined;
+        if (flag.shortcut) |sc| {
+            try writer.print("  -{c}, --{s}", .{ sc, flag.name });
+            current_width = flag.name.len + 8;
+        } else {
+            try writer.print("      --{s}", .{flag.name});
+            current_width = flag.name.len + 8;
+        }
+
+        for (0..max_width - current_width + 2) |_| try writer.writeByte(' ');
+        try writer.print("{s} [{s}]", .{ flag.description, @tagName(flag.type) });
+
+        switch (flag.default_value) {
+            .Bool => |v| try writer.print(" (default: {})", .{v}),
+            .Int => |v| try writer.print(" (default: {})", .{v}),
+            .Float => |v| try writer.print(" (default: {})", .{v}),
+            .String => |v| try writer.print(" (default: \"{s}\")", .{v}),
+        }
+        try writer.print("\n", .{});
+    }
+}
+
+fn printAlignedPositionalArgs(cmd: *const Command, writer: anytype) !void {
+    var max_width: usize = 0;
+    for (cmd.positional_args.items) |arg| {
+        if (arg.name.len > max_width) max_width = arg.name.len;
+    }
+
+    for (cmd.positional_args.items) |arg| {
+        try writer.print("  {s}", .{arg.name});
+        for (0..max_width - arg.name.len + 2) |_| try writer.writeByte(' ');
+        try writer.print("{s}", .{arg.description});
+
+        if (arg.variadic) {
+            try writer.print(" (variadic)\n", .{});
+        } else if (arg.is_required) {
+            try writer.print(" (required)\n", .{});
+        } else {
+            try writer.print(" (optional)\n", .{});
+        }
+    }
+}
+
+fn printUsageLine(cmd: *const Command, writer: anytype) !void {
+    var parents: std.ArrayList(*Command) = .empty;
+    defer parents.deinit(cmd.allocator);
+
+    var current_parent = cmd.parent;
+    while (current_parent) |p| {
+        try parents.append(cmd.allocator, p);
+        current_parent = p.parent;
+    }
+    std.mem.reverse(*Command, parents.items);
+
+    if (parents.items.len > 0) {
+        try writer.print("  {s}", .{parents.items[0].options.name});
+        for (parents.items[1..]) |p| {
+            try writer.print(" {s}", .{p.options.name});
+        }
+        try writer.print(" {s}", .{cmd.options.name});
+    } else {
+        try writer.print("  {s}", .{cmd.options.name});
+    }
+
+    if (cmd.flags.items.len > 0) {
+        try writer.print(" [flags]", .{});
+    }
+
+    for (cmd.positional_args.items) |arg| {
+        if (arg.variadic) {
+            try writer.print(" [{s}...]", .{arg.name});
+        } else if (arg.is_required) {
+            try writer.print(" <{s}>", .{arg.name});
+        } else {
+            try writer.print(" [{s}]", .{arg.name});
+        }
+    }
+
+    if (cmd.subcommands.items.len > 0) {
+        try writer.print(" [command]", .{});
+    }
+
+    try writer.print("\n\n", .{});
+}
+
+const CommandSortContext = struct {
+    pub fn lessThan(_: @This(), a: *Command, b: *Command) bool {
+        return std.mem.order(u8, a.options.name, b.options.name) == .lt;
+    }
+};
+
+const StringSortContext = struct {
+    pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
+        return std.mem.order(u8, a, b) == .lt;
+    }
+};
+
+fn printSubcommands(cmd: *const Command, writer: anytype) !void {
+    var section_map = std.StringHashMap(std.ArrayList(*Command)).init(cmd.allocator);
+    defer {
+        var it = section_map.iterator();
+        while (it.next()) |entry| entry.value_ptr.*.deinit(cmd.allocator);
+        section_map.deinit();
+    }
+
+    for (cmd.subcommands.items) |sub| {
+        const list = try section_map.getOrPut(sub.options.section);
+        if (!list.found_existing) {
+            list.value_ptr.* = .empty;
+        }
+        try list.value_ptr.*.append(cmd.allocator, sub);
+    }
+
+    var sorted_sections: std.ArrayList([]const u8) = .empty;
+    defer sorted_sections.deinit(cmd.allocator);
+    var it = section_map.keyIterator();
+    while (it.next()) |key| try sorted_sections.append(cmd.allocator, key.*);
+    std.sort.pdq([]const u8, sorted_sections.items, StringSortContext{}, StringSortContext.lessThan);
+
+    for (sorted_sections.items) |section_name| {
+        try writer.print("{s}{s}{s}:\n", .{ styles.s(styles.BOLD), section_name, styles.s(styles.RESET) });
+        const cmds_list = section_map.get(section_name).?;
+        std.sort.pdq(*Command, cmds_list.items, CommandSortContext{}, CommandSortContext.lessThan);
+        try printAlignedCommands(cmds_list.items, writer);
+        try writer.print("\n", .{});
+    }
+}
 
 // Tests for the `command` module
 
@@ -1003,4 +1202,68 @@ test "command: Args.Iterator with only argv0 produces no user args" {
 
     const user_args = if (args_list.items.len > 1) args_list.items[1..] else args_list.items[0..0];
     try std.testing.expectEqual(@as(usize, 0), user_args.len);
+}
+
+// ============================================================================
+// Tests for the help-output printers (moved from utils.zig)
+// ============================================================================
+
+test "help: printAlignedFlags produces correct padding" {
+    const allocator = std.testing.allocator;
+    var cmd = try Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addFlag(.{
+        .name = "verbose",
+        .shortcut = 'v',
+        .description = "Enable verbose output",
+        .type = .Bool,
+        .default_value = .{ .Bool = false },
+    });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedFlags(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "--help") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--verbose") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "Enable verbose output") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  ") != null);
+}
+
+test "help: printAlignedPositionalArgs produces correct padding" {
+    const allocator = std.testing.allocator;
+    var cmd = try Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addPositional(.{ .name = "input", .description = "Input file", .is_required = true });
+    try cmd.addPositional(.{ .name = "output-file", .description = "Output file", .is_required = false, .default_value = .{ .String = "out.txt" } });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedPositionalArgs(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "input") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "output-file") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(required)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(optional)") != null);
+}
+
+test "help: printUsageLine produces correct output" {
+    const allocator = std.testing.allocator;
+    var cmd = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addPositional(.{ .name = "file", .description = "A file", .is_required = true });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printUsageLine(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "app") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "<file>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "[flags]") != null);
 }

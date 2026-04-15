@@ -1,7 +1,6 @@
 //! Handles the parsing of command-line arguments into flags and positional values.
 const std = @import("std");
 const command = @import("command.zig");
-const utils = @import("utils.zig");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
 
@@ -66,7 +65,7 @@ fn parseSingleFlag(cmd: *command.Command, iterator: *ArgIterator) errors.Error!F
         const flag = cmd.findFlag(flag_name) orelse return errors.Error.UnknownFlag;
 
         if (flag.type == .Bool) {
-            const flag_value = if (value) |v| try utils.parseBool(v) else true;
+            const flag_value = if (value) |v| try types.parseBool(v) else true;
             try cmd.parsed_flags.append(cmd.allocator, .{
                 .name = flag_name,
                 .value = .{ .Bool = flag_value },
