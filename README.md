@@ -159,17 +159,17 @@ You can now run your CLI application with the `--help` flag to see the output be
 
 ```bash
 $ ./your-cli-app --help
-your-cli-app v0.1.0
 A new CLI built with Chilli
+Version: v0.1.0
 
-USAGE:
-    your-cli-app [FLAGS]
+Usage:
+  your-cli-app [flags]
 
-FLAGS:
-    -n, --name <string>      The name to greet [default: World]
-        --excitement <int>   How excited to be [default: 1]
-    -h, --help               Prints help information
-    -V, --version            Prints version information
+Flags:
+  -h, --help        Shows help information for this command [Bool] (default: false)
+      --version     Print version information and exit [Bool] (default: false)
+  -n, --name        The name to greet [String] (default: "World")
+      --excitement  How excited to be [Int] (default: 1)
 ```
 
 ---
