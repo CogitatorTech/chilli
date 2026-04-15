@@ -60,6 +60,9 @@ fn parseSingleFlag(cmd: *command.Command, iterator: *ArgIterator) errors.Error!F
             value = arg_body[eq_idx + 1 ..];
         }
 
+        // Reject `--=value` and bare `--` (which has already been handled above).
+        if (flag_name.len == 0) return errors.Error.UnknownFlag;
+
         const flag = cmd.findFlag(flag_name) orelse return errors.Error.UnknownFlag;
 
         if (flag.type == .Bool) {
@@ -397,6 +400,18 @@ test "parser: parseFlagsOnly consumes flag values" {
 
     // Iterator should be pointing at "subcmd", not "file.txt"
     try testing.expectEqualStrings("subcmd", it.peek().?);
+}
+
+test "regression: --=value is rejected with UnknownFlag" {
+    // Bug: an empty flag name between the dashes and `=` was silently
+    // looked up (findFlag("")) and happened to return null, but relied on
+    // find-by-empty-string behavior rather than rejecting the input up-front.
+    const allocator = testing.allocator;
+    var cmd = try newTestCmd(allocator);
+    defer cmd.deinit();
+
+    var it = ArgIterator.init(&[_][]const u8{"--=value"});
+    try testing.expectError(errors.Error.UnknownFlag, parseArgsAndFlags(cmd, &it));
 }
 
 test "parser: parseFlagsOnly with --flag=value syntax" {

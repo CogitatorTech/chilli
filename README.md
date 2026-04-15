@@ -19,13 +19,13 @@ A microframework for creating command-line applications in Zig
 
 ---
 
-Chilli is a lightweight command-line interface (CLI) framework for the Zig programming language.
-Its goal is to make it easy to create structured, maintainable, and user-friendly CLIs with minimal boilerplate,
-while being small and fast, and not getting in the way of your application logic.
+Chilli is a command-line interface (CLI) framework for Zig.
+It turns a declarative description of commands, flags, and positional arguments into a parser, help generator, and
+dispatcher, with zero external dependencies and minimal boilerplate.
 
 ### Features
 
-- Provides a simple, low-overhead, declarative API for building CLI applications
+- Provides a declarative API for building CLI applications
 - Supports nested commands, subcommands, and aliases
 - Provides type-safe parsing for flags, positional arguments, and environment variables
 - Supports generating automatic `--help` and `--version` output with custom sections
@@ -62,7 +62,6 @@ Zig version supported by the main releases of Chilli:
 |----------|-------------|
 | `0.16.0` | `v0.3.x`    |
 | `0.15.x` | `v0.2.x`    |
-| `0.14.1` | `v0.1.0`    |
 
 The `main` branch normally tracks the latest (non-developmental) Zig release.
 
@@ -160,7 +159,7 @@ You can now run your CLI application with the `--help` flag to see the output be
 
 ```bash
 $ ./your-cli-app --help
-your-cli-app v0.3.0
+your-cli-app v0.1.0
 A new CLI built with Chilli
 
 USAGE:

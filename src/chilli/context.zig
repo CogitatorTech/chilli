@@ -76,9 +76,10 @@ pub const CommandContext = struct {
     /// Retrieves the value for a flag, searching parsed values, then environment
     /// variables, and finally falling back to the default value.
     ///
-    /// NOTE: If the value comes from an environment variable, it is allocated using the
-    /// temporary allocator (`tmp_allocator`) and will be invalid after the `exec` function
-    /// returns. If you need to store the value, you must copy it using the `app_allocator`.
+    /// NOTE: If the value comes from an environment variable, the returned slice
+    /// borrows directly from the process environment block (valid for the
+    /// lifetime of the process). If you need to hold it past an environment
+    /// change, copy it using `app_allocator`.
     pub fn getFlag(self: *const CommandContext, name: []const u8, comptime T: type) errors.Error!T {
         // 1. Check for a parsed value from the command line.
         if (self.command.getFlagValue(name)) |parsed_value| {

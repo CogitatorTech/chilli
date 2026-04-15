@@ -81,7 +81,7 @@ docs: ## Generate API documentation
 	@echo "Generating API documentation..."
 	@$(ZIG) build docs
 
-serve-docs: ## Serve the generated documentation on a local server
+serve-docs: docs ## Serve the generated documentation on a local server
 	@echo "Serving documentation at http://localhost:8000..."
 	@cd docs/api && python3 -m http.server 8000
 

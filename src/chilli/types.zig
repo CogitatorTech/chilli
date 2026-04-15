@@ -35,6 +35,10 @@ pub fn parseValue(value_type: FlagType, value: []const u8) errors.Error!FlagValu
 }
 
 /// Defines the configuration for a `Command`.
+///
+/// All string-slice fields (`name`, `description`, `version`, `section`, and
+/// the entries of `aliases`) are borrowed by the `Command`, not copied. They
+/// must remain valid for the lifetime of the command tree.
 pub const CommandOptions = struct {
     /// The primary name of the command, used to invoke it.
     name: []const u8,
