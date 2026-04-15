@@ -5,6 +5,7 @@ const context = @import("context.zig");
 const styles = @import("styles.zig");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
+const deprecation = @import("deprecation.zig");
 
 /// Defines the configuration for a `Command`.
 ///
@@ -27,6 +28,11 @@ pub const CommandOptions = struct {
     version: ?[]const u8 = null,
     /// The name of the section under which this command should be grouped in a parent's help message.
     section: []const u8 = "Commands",
+    /// If set, marks the command as deprecated. The value is a free-form
+    /// reason or replacement suggestion. The command is still dispatched,
+    /// and its `exec` is still run, but a warning is written to stderr when
+    /// this command resolves as the leaf of the invocation chain.
+    deprecated: ?[]const u8 = null,
 };
 
 /// Represents a single command in a CLI application.
@@ -272,6 +278,20 @@ pub const Command = struct {
         }
 
         try parser.validateArgs(current_cmd);
+
+        // Deprecation warnings for the resolved command and for any
+        // deprecated positional slots the user actually filled. Flag-level
+        // warnings fire inside the parser at parse time.
+        if (current_cmd.options.deprecated) |reason| {
+            deprecation.emit(current_cmd.allocator, "command", current_cmd.options.name, reason);
+        }
+        for (current_cmd.positional_args.items, 0..) |arg, i| {
+            if (arg.deprecated) |reason| {
+                if (i < current_cmd.parsed_positionals.items.len) {
+                    deprecation.emit(current_cmd.allocator, "positional argument", arg.name, reason);
+                }
+            }
+        }
 
         // Success, clear the out_failed_cmd
         out_failed_cmd.* = null;
@@ -526,7 +546,9 @@ fn printAlignedCommands(commands: []*Command, writer: anytype) !void {
         }
 
         for (0..max_width - current_width + 2) |_| try writer.writeByte(' ');
-        try writer.print("{s}\n", .{cmd.options.description});
+        try writer.print("{s}", .{cmd.options.description});
+        if (cmd.options.deprecated != null) try writer.print(" (deprecated)", .{});
+        try writer.print("\n", .{});
     }
 }
 
@@ -564,6 +586,7 @@ fn printAlignedFlags(cmd: *const Command, writer: anytype) !void {
             .Float => |v| try writer.print(" (default: {})", .{v}),
             .String => |v| try writer.print(" (default: \"{s}\")", .{v}),
         }
+        if (flag.deprecated != null) try writer.print(" (deprecated)", .{});
         try writer.print("\n", .{});
     }
 }
@@ -580,12 +603,14 @@ fn printAlignedPositionalArgs(cmd: *const Command, writer: anytype) !void {
         try writer.print("{s}", .{arg.description});
 
         if (arg.variadic) {
-            try writer.print(" (variadic)\n", .{});
+            try writer.print(" (variadic)", .{});
         } else if (arg.is_required) {
-            try writer.print(" (required)\n", .{});
+            try writer.print(" (required)", .{});
         } else {
-            try writer.print(" (optional)\n", .{});
+            try writer.print(" (optional)", .{});
         }
+        if (arg.deprecated != null) try writer.print(" (deprecated)", .{});
+        try writer.print("\n", .{});
     }
 }
 
@@ -1249,6 +1274,99 @@ test "help: printAlignedPositionalArgs produces correct padding" {
     try std.testing.expect(std.mem.indexOf(u8, output, "output-file") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "(required)") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "(optional)") != null);
+}
+
+test "deprecation: printAlignedFlags marks deprecated flag" {
+    const allocator = std.testing.allocator;
+    styles.setEnabled(false);
+    defer styles.setEnabled(false);
+
+    var cmd = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+    try cmd.addFlag(.{
+        .name = "old",
+        .type = .Bool,
+        .default_value = .{ .Bool = false },
+        .description = "Old flag",
+        .deprecated = "use --new",
+    });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedFlags(cmd, &writer);
+    const out = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, out, "--old") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "(deprecated)") != null);
+}
+
+test "deprecation: printAlignedPositionalArgs marks deprecated arg" {
+    const allocator = std.testing.allocator;
+    styles.setEnabled(false);
+    defer styles.setEnabled(false);
+
+    var cmd = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+    try cmd.addPositional(.{
+        .name = "path",
+        .description = "Path to file",
+        .is_required = true,
+        .deprecated = "use --input flag",
+    });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedPositionalArgs(cmd, &writer);
+    const out = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, out, "path") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "(required)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "(deprecated)") != null);
+}
+
+test "deprecation: printAlignedCommands marks deprecated subcommand" {
+    const allocator = std.testing.allocator;
+    styles.setEnabled(false);
+    defer styles.setEnabled(false);
+
+    var root = try Command.init(allocator, .{ .name = "root", .description = "", .exec = dummyExec });
+    defer root.deinit();
+    const old_sub = try Command.init(allocator, .{
+        .name = "old-sub",
+        .description = "The old way",
+        .exec = dummyExec,
+        .deprecated = "use 'new-sub' instead",
+    });
+    try root.addSubcommand(old_sub);
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedCommands(root.subcommands.items, &writer);
+    const out = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, out, "old-sub") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "(deprecated)") != null);
+}
+
+test "deprecation: flag is still parsed and honored when deprecated" {
+    // Contract: deprecation never breaks existing invocations. The flag
+    // must still be available via getFlagValue after parsing.
+    const allocator = std.testing.allocator;
+    deprecation.setSuppressedForTests(true); // silence the warning for this test
+    defer deprecation.setSuppressedForTests(false);
+
+    var cmd = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+    try cmd.addFlag(.{
+        .name = "legacy-mode",
+        .type = .Bool,
+        .default_value = .{ .Bool = false },
+        .description = "",
+        .deprecated = "removed in v0.5",
+    });
+
+    var failed_cmd: ?*const Command = null;
+    try cmd.execute(&[_][]const u8{"--legacy-mode"}, null, &failed_cmd);
+    try std.testing.expect(failed_cmd == null);
+    const v = cmd.getFlagValue("legacy-mode").?;
+    try std.testing.expect(v.Bool);
 }
 
 test "help: printUsageLine produces correct output" {

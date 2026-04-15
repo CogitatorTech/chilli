@@ -3,6 +3,7 @@ const std = @import("std");
 const command = @import("command.zig");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
+const deprecation = @import("deprecation.zig");
 
 /// A simple forward-only iterator over a slice of string arguments.
 pub const ArgIterator = struct {
@@ -82,6 +83,9 @@ fn parseSingleFlag(cmd: *command.Command, iterator: *ArgIterator) errors.Error!F
                 .value = try types.parseValue(flag.type, val),
             });
         }
+        if (flag.deprecated) |reason| {
+            deprecation.emit(cmd.allocator, "flag", flag.name, reason);
+        }
         return .parsed;
     }
 
@@ -94,6 +98,9 @@ fn parseSingleFlag(cmd: *command.Command, iterator: *ArgIterator) errors.Error!F
 
             if (flag.type == .Bool) {
                 try cmd.parsed_flags.append(cmd.allocator, .{ .name = flag.name, .value = .{ .Bool = true } });
+                if (flag.deprecated) |reason| {
+                    deprecation.emit(cmd.allocator, "flag", flag.name, reason);
+                }
             } else {
                 var value: []const u8 = undefined;
                 var value_from_next_arg = false;
@@ -113,6 +120,9 @@ fn parseSingleFlag(cmd: *command.Command, iterator: *ArgIterator) errors.Error!F
                     .name = flag.name,
                     .value = try types.parseValue(flag.type, value),
                 });
+                if (flag.deprecated) |reason| {
+                    deprecation.emit(cmd.allocator, "flag", flag.name, reason);
+                }
                 break;
             }
         }

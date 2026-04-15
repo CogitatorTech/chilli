@@ -41,6 +41,7 @@ Priorities, in order:
 - `src/chilli/context.zig`: The `CommandContext` passed to each command's `exec` function for typed flag and argument access.
 - `src/chilli/errors.zig`: Error types produced by parsing and type coercion.
 - `src/chilli/styles.zig`: ANSI escape-code constants plus a TTY-gated `s()` wrapper used by the help and error output.
+- `src/chilli/deprecation.zig`: Warning formatter and stderr emitter for deprecated commands, flags, and positional arguments, with `CHILLI_NO_DEPRECATION_WARNINGS` suppression.
 - `examples/`: Self-contained example programs (`e1_simple_cli.zig` through `e8_flags_and_args.zig`) built as executables via `build.zig`.
 - `.github/workflows/`: CI workflows (`tests.yml` for unit tests on Linux, macOS, and Windows, `docs.yml` for API doc deployment).
 - `build.zig` / `build.zig.zon`: Zig build configuration and package metadata.
@@ -135,7 +136,7 @@ Good first tasks:
 
 Before coding:
 
-1. Modules affected by the change (`command`, `parser`, `types`, `context`, `errors`, or `styles`).
+1. Modules affected by the change (`command`, `parser`, `types`, `context`, `errors`, `styles`, or `deprecation`).
 2. Whether the change is user-visible in `--help` output, and if so, which examples will surface it.
 3. Public API impact, i.e. whether the change adds to or alters anything re-exported from `src/lib.zig`, and is therefore additive or breaking.
 4. Cross-platform implications, especially for anything that touches environment variables, the filesystem, or process-args encoding.
