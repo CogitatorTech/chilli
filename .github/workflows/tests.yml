@@ -29,6 +29,9 @@ jobs:
           - os: ubuntu-latest
             zig-url: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
             zig-dir: zig-x86_64-linux-0.16.0
+          - os: macos-latest
+            zig-url: https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz
+            zig-dir: zig-aarch64-macos-0.16.0
           - os: windows-latest
             zig-url: https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip
             zig-dir: zig-x86_64-windows-0.16.0
@@ -37,8 +40,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Zig 0.16.0 (Linux)
-        if: runner.os == 'Linux'
+      - name: Install Zig 0.16.0 (Unix)
+        if: runner.os != 'Windows'
         run: |
           curl -sSfL ${{ matrix.zig-url }} | tar -xJ
           echo "$PWD/${{ matrix.zig-dir }}" >> "$GITHUB_PATH"
