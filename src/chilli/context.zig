@@ -343,6 +343,14 @@ test "context: getArgsAs for typed variadic" {
 test "context: getFlag reads env var via debug_threaded_io environ" {
     // Verify that the Environ.getPosix lookup through debug_threaded_io
     // can find a real environment variable (PATH is always set on POSIX).
+    //
+    // `canLookupEnv()` in context.zig returns false on Windows/WASI/etc.,
+    // so the lookup is skipped and getFlag falls back to the default on
+    // those targets. This test only exercises the POSIX lookup path; the
+    // sibling tests above and below cover the default-fallback path that
+    // is what Windows runs through unconditionally.
+    if (comptime !canLookupEnv()) return;
+
     const allocator = testing.allocator;
     var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
     defer cmd.deinit();
