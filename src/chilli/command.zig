@@ -372,10 +372,12 @@ pub const Command = struct {
         // Note: the automatic --version flag is added in `init` so `run` is
         // safe to call more than once on the same command.
 
-        // Collect process arguments via iterator
+        // Collect process arguments via iterator. `initAllocator` is the
+        // cross-platform form: plain `init` is a compile error on Windows
+        // and WASI, where parsing the command line requires allocation.
         var args_list: std.ArrayList([]const u8) = .empty;
         defer args_list.deinit(self.allocator);
-        var args_iter = std.process.Args.Iterator.init(args);
+        var args_iter = try std.process.Args.Iterator.initAllocator(args, self.allocator);
         defer args_iter.deinit();
         while (args_iter.next()) |arg| {
             try args_list.append(self.allocator, arg);
