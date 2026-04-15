@@ -59,9 +59,9 @@ This command will download Chilli and add it to Zig's global cache and update yo
 Zig version supported by the main releases of Chilli:
 
 | Zig      | Chilli Tags |
-|----------|-------------|
-| `0.16.0` | `v0.3.x`    |
-| `0.15.x` | `v0.2.x`    |
+|----------|----------|
+| `0.16.0` | `v0.4.x` |
+| `0.15.x` | `v0.2.x` |
 
 The `main` branch normally tracks the latest (non-developmental) Zig release.
 
