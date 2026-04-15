@@ -35,14 +35,14 @@ Priorities, in order:
 
 - `src/lib.zig`: Public API entry point. Re-exports `Command`, `CommandOptions`, `Flag`, `FlagType`, `FlagValue`, `PositionalArg`, `CommandContext`,
   `styles`, and `Error`.
-- `src/chilli/command.zig`: The `Command` struct (command tree, init/deinit, `run`, subcommand and flag registration).
-- `src/chilli/types.zig`: Core types (`CommandOptions`, `Flag`, `FlagType`, `FlagValue`, `PositionalArg`) and the `parseValue` helper.
+- `src/chilli/command.zig`: The `Command` struct, `CommandOptions`, init/deinit, `run`, subcommand and flag registration, and the private help-output printers.
+- `src/chilli/types.zig`: Core types (`Flag`, `FlagType`, `FlagValue`, `PositionalArg`) and the `parseBool` / `parseValue` helpers.
 - `src/chilli/parser.zig`: Argument-string parser (`ArgIterator`, `ParsedFlag`, long/short/grouped flag handling, positional handling).
 - `src/chilli/context.zig`: The `CommandContext` passed to each command's `exec` function for typed flag and argument access.
 - `src/chilli/errors.zig`: Error types produced by parsing and type coercion.
-- `src/chilli/utils.zig`: Shared helpers (`styles` for ANSI colors, `parseBool`, and other small utilities).
+- `src/chilli/styles.zig`: ANSI escape-code constants plus a TTY-gated `s()` wrapper used by the help and error output.
 - `examples/`: Self-contained example programs (`e1_simple_cli.zig` through `e8_flags_and_args.zig`) built as executables via `build.zig`.
-- `.github/workflows/`: CI workflows (`tests.yml` for unit tests on Linux and Windows, `docs.yml` for API doc deployment).
+- `.github/workflows/`: CI workflows (`tests.yml` for unit tests on Linux, macOS, and Windows, `docs.yml` for API doc deployment).
 - `build.zig` / `build.zig.zon`: Zig build configuration and package metadata.
 - `Makefile`: GNU Make wrapper around `zig build` targets.
 - `docs/`: Generated API docs land in `docs/api/` (produced by `make docs`).
@@ -135,7 +135,7 @@ Good first tasks:
 
 Before coding:
 
-1. Modules affected by the change (`command`, `parser`, `types`, `context`, `errors`, or `utils`).
+1. Modules affected by the change (`command`, `parser`, `types`, `context`, `errors`, or `styles`).
 2. Whether the change is user-visible in `--help` output, and if so, which examples will surface it.
 3. Public API impact, i.e. whether the change adds to or alters anything re-exported from `src/lib.zig`, and is therefore additive or breaking.
 4. Cross-platform implications, especially for anything that touches environment variables, the filesystem, or process-args encoding.
