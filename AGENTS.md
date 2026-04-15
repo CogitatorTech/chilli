@@ -35,13 +35,15 @@ Priorities, in order:
 
 - `src/lib.zig`: Public API entry point. Re-exports `Command`, `CommandOptions`, `Flag`, `FlagType`, `FlagValue`, `PositionalArg`, `CommandContext`,
   `styles`, and `Error`.
-- `src/chilli/command.zig`: The `Command` struct, `CommandOptions`, init/deinit, `run`, subcommand and flag registration, and the private help-output printers.
+- `src/chilli/command.zig`: The `Command` struct, `CommandOptions`, init/deinit, `run`, subcommand and flag registration, and the private help-output
+  printers.
 - `src/chilli/types.zig`: Core types (`Flag`, `FlagType`, `FlagValue`, `PositionalArg`) and the `parseBool` / `parseValue` helpers.
 - `src/chilli/parser.zig`: Argument-string parser (`ArgIterator`, `ParsedFlag`, long/short/grouped flag handling, positional handling).
 - `src/chilli/context.zig`: The `CommandContext` passed to each command's `exec` function for typed flag and argument access.
 - `src/chilli/errors.zig`: Error types produced by parsing and type coercion.
 - `src/chilli/styles.zig`: ANSI escape-code constants plus a TTY-gated `s()` wrapper used by the help and error output.
-- `src/chilli/deprecation.zig`: Warning formatter and stderr emitter for deprecated commands, flags, and positional arguments, with `CHILLI_NO_DEPRECATION_WARNINGS` suppression.
+- `src/chilli/deprecation.zig`: Warning formatter and stderr emitter for deprecated commands, flags, and positional arguments, with
+  `CHILLI_NO_DEPRECATION_WARNINGS` suppression.
 - `examples/`: Self-contained example programs (`e1_simple_cli.zig` through `e8_flags_and_args.zig`) built as executables via `build.zig`.
 - `.github/workflows/`: CI workflows (`tests.yml` for unit tests on Linux, macOS, and Windows, `docs.yml` for API doc deployment).
 - `build.zig` / `build.zig.zon`: Zig build configuration and package metadata.
