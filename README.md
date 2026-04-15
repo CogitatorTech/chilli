@@ -19,13 +19,13 @@ A microframework for creating command-line applications in Zig
 
 ---
 
-Chilli is a lightweight command-line interface (CLI) framework for the Zig programming language.
-Its goal is to make it easy to create structured, maintainable, and user-friendly CLIs with minimal boilerplate,
-while being small and fast, and not getting in the way of your application logic.
+Chilli is a command-line interface (CLI) framework for Zig.
+It turns a declarative description of commands, flags, and positional arguments into a parser, help generator, and
+dispatcher, with zero external dependencies and minimal boilerplate.
 
 ### Features
 
-- Provides a simple, low-overhead, declarative API for building CLI applications
+- Provides a declarative API for building CLI applications
 - Supports nested commands, subcommands, and aliases
 - Provides type-safe parsing for flags, positional arguments, and environment variables
 - Supports generating automatic `--help` and `--version` output with custom sections
@@ -52,9 +52,18 @@ Run the following command in the root directory of your project to download Chil
 zig fetch --save=chilli "https://github.com/CogitatorTech/chilli/archive/<branch_or_tag>.tar.gz"
 ```
 
-Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.2.3`
+Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the development version) or `v0.3.0`
 (for the specified release version).
 This command will download Chilli and add it to Zig's global cache and update your project's `build.zig.zon` file.
+
+Zig version supported by the main releases of Chilli:
+
+| Zig      | Chilli Tags |
+|----------|-------------|
+| `0.16.0` | `v0.3.x`    |
+| `0.15.x` | `v0.2.x`    |
+
+The `main` branch normally tracks the latest (non-developmental) Zig release.
 
 #### Adding to Build Script
 
@@ -150,17 +159,17 @@ You can now run your CLI application with the `--help` flag to see the output be
 
 ```bash
 $ ./your-cli-app --help
-your-cli-app v0.3.0
 A new CLI built with Chilli
+Version: v0.1.0
 
-USAGE:
-    your-cli-app [FLAGS]
+Usage:
+  your-cli-app [flags]
 
-FLAGS:
-    -n, --name <string>      The name to greet [default: World]
-        --excitement <int>   How excited to be [default: 1]
-    -h, --help               Prints help information
-    -V, --version            Prints version information
+Flags:
+  -h, --help        Shows help information for this command [Bool] (default: false)
+      --version     Print version information and exit [Bool] (default: false)
+  -n, --name        The name to greet [String] (default: "World")
+      --excitement  How excited to be [Int] (default: 1)
 ```
 
 ---

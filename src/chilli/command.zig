@@ -2,9 +2,32 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const context = @import("context.zig");
-const utils = @import("utils.zig");
+const styles = @import("styles.zig");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
+
+/// Defines the configuration for a `Command`.
+///
+/// All string-slice fields (`name`, `description`, `version`, `section`, and
+/// the entries of `aliases`) are borrowed by the `Command`, not copied. They
+/// must remain valid for the lifetime of the command tree.
+pub const CommandOptions = struct {
+    /// The primary name of the command, used to invoke it.
+    name: []const u8,
+    /// A short description of the command's purpose, shown in help messages.
+    description: []const u8,
+    /// The function to execute when this command is run.
+    exec: *const fn (ctx: context.CommandContext) anyerror!void,
+    /// An optional list of alternative names for the command.
+    aliases: ?[]const []const u8 = null,
+    /// An optional single-character shortcut for the command (e.g., 'c').
+    shortcut: ?u8 = null,
+    /// An optional version string for the application. If provided on the root command,
+    /// an automatic `--version` flag will be available.
+    version: ?[]const u8 = null,
+    /// The name of the section under which this command should be grouped in a parent's help message.
+    section: []const u8 = "Commands",
+};
 
 /// Represents a single command in a CLI application.
 ///
@@ -19,7 +42,7 @@ const errors = @import("errors.zig");
 /// threads on the same `Command` instance concurrently will result in a data race
 /// and undefined behavior.
 pub const Command = struct {
-    options: types.CommandOptions,
+    options: CommandOptions,
     subcommands: std.ArrayList(*Command),
     flags: std.ArrayList(types.Flag),
     positional_args: std.ArrayList(types.PositionalArg),
@@ -30,12 +53,16 @@ pub const Command = struct {
 
     /// Initializes a new command.
     /// Panics if the provided command name is empty.
-    pub fn init(allocator: std.mem.Allocator, options: types.CommandOptions) !*Command {
+    pub fn init(allocator: std.mem.Allocator, options: CommandOptions) !*Command {
         if (options.name.len == 0) {
             std.debug.panic("Command name cannot be empty.", .{});
         }
 
         const command = try allocator.create(Command);
+        // On any failure past this point, free the struct so the allocation
+        // does not leak. `addFlag` below can fail on OOM.
+        errdefer allocator.destroy(command);
+
         command.* = Command{
             .options = options,
             .subcommands = .empty,
@@ -46,6 +73,15 @@ pub const Command = struct {
             .parsed_flags = .empty,
             .parsed_positionals = .empty,
         };
+        // If addFlag fails below, also release any ArrayList backing storage
+        // that may have been partially initialised.
+        errdefer {
+            command.flags.deinit(allocator);
+            command.subcommands.deinit(allocator);
+            command.positional_args.deinit(allocator);
+            command.parsed_flags.deinit(allocator);
+            command.parsed_positionals.deinit(allocator);
+        }
 
         const help_flag = types.Flag{
             .name = "help",
@@ -56,6 +92,18 @@ pub const Command = struct {
         };
         try command.addFlag(help_flag);
 
+        // Add the automatic --version flag up-front if the caller asked for
+        // one. Doing it here (rather than in `run`) keeps `run` idempotent
+        // across repeated invocations on the same command tree.
+        if (options.version != null) {
+            try command.addFlag(.{
+                .name = "version",
+                .description = "Print version information and exit",
+                .type = .Bool,
+                .default_value = .{ .Bool = false },
+            });
+        }
+
         return command;
     }
 
@@ -63,10 +111,19 @@ pub const Command = struct {
     ///
     /// This function should ONLY be called on the root command of the application.
     /// It recursively deinitializes all child and grandchild commands. Calling `deinit`
-    /// on a subcommand that has a parent will lead to a double-free when the
-    /// root command's `deinit` is also called.
+    /// on a subcommand that has a parent will panic, because the resulting free
+    /// would collide with the root's sweep and cause a double-free.
     pub fn deinit(self: *Command) void {
+        if (self.parent != null) {
+            std.debug.panic(
+                "Command.deinit was called on subcommand '{s}', which is still attached to parent '{s}'. " ++
+                    "Only call deinit on the root command; it recursively frees its subcommands.",
+                .{ self.options.name, self.parent.?.options.name },
+            );
+        }
         for (self.subcommands.items) |sub| {
+            // Disown the child before recursing so its own parent-check passes.
+            sub.parent = null;
             sub.deinit();
         }
         self.subcommands.deinit(self.allocator);
@@ -144,6 +201,18 @@ pub const Command = struct {
         try self.positional_args.append(self.allocator, arg);
     }
 
+    /// Resets `parsed_flags` and `parsed_positionals` on this command and
+    /// every descendant. Used by `execute` so that a re-entering call sees
+    /// a clean tree even on branches that were visited by a previous call
+    /// but are not visited by the current one.
+    fn resetParsedStateRecursive(self: *Command) void {
+        self.parsed_flags.shrinkRetainingCapacity(0);
+        self.parsed_positionals.shrinkRetainingCapacity(0);
+        for (self.subcommands.items) |sub| {
+            sub.resetParsedStateRecursive();
+        }
+    }
+
     /// Parses arguments and executes the appropriate command. This is the core logic loop.
     pub fn execute(self: *Command, user_args: []const []const u8, data: ?*anyopaque, out_failed_cmd: *?*const Command) anyerror!void {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -155,9 +224,10 @@ pub const Command = struct {
         var current_cmd: *Command = self;
         out_failed_cmd.* = current_cmd;
 
-        // Reset root command state for re-entering.
-        current_cmd.parsed_flags.shrinkRetainingCapacity(0);
-        current_cmd.parsed_positionals.shrinkRetainingCapacity(0);
+        // Reset parsed state on the entire tree so stale values from a
+        // prior `execute` invocation on an unvisited branch do not leak
+        // into this run.
+        self.resetParsedStateRecursive();
 
         // Resolve the subcommand chain, parsing flags at each level.
         // Flags before a subcommand name are stored on the command at that level.
@@ -170,9 +240,6 @@ pub const Command = struct {
             if (current_cmd.findSubcommand(arg)) |found_sub| {
                 current_cmd = found_sub;
                 out_failed_cmd.* = current_cmd;
-                // Reset subcommand state for re-entrancy.
-                current_cmd.parsed_flags.shrinkRetainingCapacity(0);
-                current_cmd.parsed_positionals.shrinkRetainingCapacity(0);
                 arg_iterator.next();
             } else {
                 break;
@@ -227,8 +294,8 @@ pub const Command = struct {
         failed_cmd: ?*const Command,
         writer: anytype,
     ) void {
-        const red = utils.styles.RED;
-        const reset = utils.styles.RESET;
+        const red = styles.s(styles.RED);
+        const reset = styles.s(styles.RESET);
 
         switch (err) {
             error.BrokenPipe => return, // Exit silently on broken pipe
@@ -240,22 +307,24 @@ pub const Command = struct {
         switch (err) {
             error.MissingRequiredArgument => {
                 if (failed_cmd) |cmd| {
-                    const path = cmd.getCommandPath(allocator) catch "unknown command";
-                    defer if (std.mem.eql(u8, path, "unknown command")) {} else {
-                        allocator.free(path);
-                    };
-                    writer.print("Missing a required argument for command '{s}'.\n", .{path}) catch return;
+                    if (cmd.getCommandPath(allocator)) |path| {
+                        defer allocator.free(path);
+                        writer.print("Missing a required argument for command '{s}'.\n", .{path}) catch return;
+                    } else |_| {
+                        writer.print("Missing a required argument for command '{s}'.\n", .{cmd.options.name}) catch return;
+                    }
                 } else {
                     writer.print("Missing a required argument.\n", .{}) catch return;
                 }
             },
             error.TooManyArguments => {
                 if (failed_cmd) |cmd| {
-                    const path = cmd.getCommandPath(allocator) catch "unknown command";
-                    defer if (std.mem.eql(u8, path, "unknown command")) {} else {
-                        allocator.free(path);
-                    };
-                    writer.print("Too many arguments provided for command '{s}'.\n", .{path}) catch return;
+                    if (cmd.getCommandPath(allocator)) |path| {
+                        defer allocator.free(path);
+                        writer.print("Too many arguments provided for command '{s}'.\n", .{path}) catch return;
+                    } else |_| {
+                        writer.print("Too many arguments provided for command '{s}'.\n", .{cmd.options.name}) catch return;
+                    }
                 } else {
                     writer.print("Too many arguments provided.\n", .{}) catch return;
                 }
@@ -280,14 +349,8 @@ pub const Command = struct {
     /// The main entry point for running the CLI application.
     /// This function handles process arguments, invokes `execute`, and prints formatted errors.
     pub fn run(self: *Command, args: std.process.Args, data: ?*anyopaque) !void {
-        if (self.options.version != null) {
-            try self.addFlag(.{
-                .name = "version",
-                .description = "Print version information and exit",
-                .type = .Bool,
-                .default_value = .{ .Bool = false },
-            });
-        }
+        // Note: the automatic --version flag is added in `init` so `run` is
+        // safe to call more than once on the same command.
 
         // Collect process arguments via iterator
         var args_list: std.ArrayList([]const u8) = .empty;
@@ -372,10 +435,17 @@ pub const Command = struct {
     /// (Internal) Retrieves the parsed value of a flag, searching upwards through
     /// parent commands. This mirrors `findFlag` and allows subcommand exec functions
     /// to access flags that were parsed at a parent command level.
+    ///
+    /// Within a single command's parsed flags, the *last* specified value wins
+    /// (matching how getopt, clap, cobra, etc. handle repeated flags), so
+    /// `--config foo --config bar` returns `bar`.
     pub fn getFlagValue(self: *const Command, name: []const u8) ?types.FlagValue {
         var current: ?*const Command = self;
         while (current) |cmd| {
-            for (cmd.parsed_flags.items) |flag| {
+            var i: usize = cmd.parsed_flags.items.len;
+            while (i > 0) {
+                i -= 1;
+                const flag = cmd.parsed_flags.items[i];
                 if (std.mem.eql(u8, flag.name, name)) return flag.value;
             }
             current = cmd.parent;
@@ -395,34 +465,214 @@ pub const Command = struct {
         var buf: [4096]u8 = undefined;
         var file_writer = std.Io.File.stdout().writer(io, &buf);
         const stdout = &file_writer.interface;
-        try stdout.print("{s}{s}{s}\n", .{ utils.styles.BOLD, self.options.description, utils.styles.RESET });
+        const bold = styles.s(styles.BOLD);
+        const dim = styles.s(styles.DIM);
+        const reset = styles.s(styles.RESET);
+
+        try stdout.print("{s}{s}{s}\n", .{ bold, self.options.description, reset });
 
         if (self.options.version) |version| {
-            try stdout.print("{s}Version: {s}{s}\n", .{ utils.styles.DIM, version, utils.styles.RESET });
+            try stdout.print("{s}Version: {s}{s}\n", .{ dim, version, reset });
         }
         try stdout.print("\n", .{});
 
-        try stdout.print("{s}Usage:{s}\n", .{ utils.styles.BOLD, utils.styles.RESET });
-        try utils.printUsageLine(self, stdout);
+        try stdout.print("{s}Usage:{s}\n", .{ bold, reset });
+        try printUsageLine(self, stdout);
 
         if (self.positional_args.items.len > 0) {
-            try stdout.print("{s}Arguments:{s}\n", .{ utils.styles.BOLD, utils.styles.RESET });
-            try utils.printAlignedPositionalArgs(self, stdout);
+            try stdout.print("{s}Arguments:{s}\n", .{ bold, reset });
+            try printAlignedPositionalArgs(self, stdout);
             try stdout.print("\n", .{});
         }
 
         if (self.flags.items.len > 0) {
-            try stdout.print("{s}Flags:{s}\n", .{ utils.styles.BOLD, utils.styles.RESET });
-            try utils.printAlignedFlags(self, stdout);
+            try stdout.print("{s}Flags:{s}\n", .{ bold, reset });
+            try printAlignedFlags(self, stdout);
             try stdout.print("\n", .{});
         }
 
         if (self.subcommands.items.len > 0) {
-            try utils.printSubcommands(self, stdout);
+            try printSubcommands(self, stdout);
         }
         try file_writer.flush();
     }
 };
+
+// ============================================================================
+// Help-output printers (private)
+// ============================================================================
+// These used to live in utils.zig. They were moved here because they depend
+// on Command's internals (flags, positional_args, subcommands, parent chain),
+// and keeping them in a separate module created a utils <-> command import
+// cycle that the refactor set out to eliminate. They are intentionally not
+// `pub` — help output is a Command concern, not a public extension point.
+
+fn printAlignedCommands(commands: []*Command, writer: anytype) !void {
+    var max_width: usize = 0;
+    for (commands) |cmd| {
+        var len = cmd.options.name.len;
+        if (cmd.options.shortcut != null) {
+            len += 4; // " (c)"
+        }
+        if (len > max_width) max_width = len;
+    }
+
+    for (commands) |cmd| {
+        try writer.print("  {s}", .{cmd.options.name});
+        var current_width = cmd.options.name.len;
+        if (cmd.options.shortcut) |sc| {
+            try writer.print(" ({c})", .{sc});
+            current_width += 4;
+        }
+
+        for (0..max_width - current_width + 2) |_| try writer.writeByte(' ');
+        try writer.print("{s}\n", .{cmd.options.description});
+    }
+}
+
+fn printAlignedFlags(cmd: *const Command, writer: anytype) !void {
+    var max_width: usize = 0;
+    for (cmd.flags.items) |flag| {
+        if (flag.hidden) continue;
+        const len: usize = if (flag.shortcut != null)
+            // "  -c, --name"
+            flag.name.len + 8
+        else
+            // "      --name"
+            flag.name.len + 8;
+        if (len > max_width) max_width = len;
+    }
+
+    for (cmd.flags.items) |flag| {
+        if (flag.hidden) continue;
+
+        var current_width: usize = undefined;
+        if (flag.shortcut) |sc| {
+            try writer.print("  -{c}, --{s}", .{ sc, flag.name });
+            current_width = flag.name.len + 8;
+        } else {
+            try writer.print("      --{s}", .{flag.name});
+            current_width = flag.name.len + 8;
+        }
+
+        for (0..max_width - current_width + 2) |_| try writer.writeByte(' ');
+        try writer.print("{s} [{s}]", .{ flag.description, @tagName(flag.type) });
+
+        switch (flag.default_value) {
+            .Bool => |v| try writer.print(" (default: {})", .{v}),
+            .Int => |v| try writer.print(" (default: {})", .{v}),
+            .Float => |v| try writer.print(" (default: {})", .{v}),
+            .String => |v| try writer.print(" (default: \"{s}\")", .{v}),
+        }
+        try writer.print("\n", .{});
+    }
+}
+
+fn printAlignedPositionalArgs(cmd: *const Command, writer: anytype) !void {
+    var max_width: usize = 0;
+    for (cmd.positional_args.items) |arg| {
+        if (arg.name.len > max_width) max_width = arg.name.len;
+    }
+
+    for (cmd.positional_args.items) |arg| {
+        try writer.print("  {s}", .{arg.name});
+        for (0..max_width - arg.name.len + 2) |_| try writer.writeByte(' ');
+        try writer.print("{s}", .{arg.description});
+
+        if (arg.variadic) {
+            try writer.print(" (variadic)\n", .{});
+        } else if (arg.is_required) {
+            try writer.print(" (required)\n", .{});
+        } else {
+            try writer.print(" (optional)\n", .{});
+        }
+    }
+}
+
+fn printUsageLine(cmd: *const Command, writer: anytype) !void {
+    var parents: std.ArrayList(*Command) = .empty;
+    defer parents.deinit(cmd.allocator);
+
+    var current_parent = cmd.parent;
+    while (current_parent) |p| {
+        try parents.append(cmd.allocator, p);
+        current_parent = p.parent;
+    }
+    std.mem.reverse(*Command, parents.items);
+
+    if (parents.items.len > 0) {
+        try writer.print("  {s}", .{parents.items[0].options.name});
+        for (parents.items[1..]) |p| {
+            try writer.print(" {s}", .{p.options.name});
+        }
+        try writer.print(" {s}", .{cmd.options.name});
+    } else {
+        try writer.print("  {s}", .{cmd.options.name});
+    }
+
+    if (cmd.flags.items.len > 0) {
+        try writer.print(" [flags]", .{});
+    }
+
+    for (cmd.positional_args.items) |arg| {
+        if (arg.variadic) {
+            try writer.print(" [{s}...]", .{arg.name});
+        } else if (arg.is_required) {
+            try writer.print(" <{s}>", .{arg.name});
+        } else {
+            try writer.print(" [{s}]", .{arg.name});
+        }
+    }
+
+    if (cmd.subcommands.items.len > 0) {
+        try writer.print(" [command]", .{});
+    }
+
+    try writer.print("\n\n", .{});
+}
+
+const CommandSortContext = struct {
+    pub fn lessThan(_: @This(), a: *Command, b: *Command) bool {
+        return std.mem.order(u8, a.options.name, b.options.name) == .lt;
+    }
+};
+
+const StringSortContext = struct {
+    pub fn lessThan(_: @This(), a: []const u8, b: []const u8) bool {
+        return std.mem.order(u8, a, b) == .lt;
+    }
+};
+
+fn printSubcommands(cmd: *const Command, writer: anytype) !void {
+    var section_map = std.StringHashMap(std.ArrayList(*Command)).init(cmd.allocator);
+    defer {
+        var it = section_map.iterator();
+        while (it.next()) |entry| entry.value_ptr.*.deinit(cmd.allocator);
+        section_map.deinit();
+    }
+
+    for (cmd.subcommands.items) |sub| {
+        const list = try section_map.getOrPut(sub.options.section);
+        if (!list.found_existing) {
+            list.value_ptr.* = .empty;
+        }
+        try list.value_ptr.*.append(cmd.allocator, sub);
+    }
+
+    var sorted_sections: std.ArrayList([]const u8) = .empty;
+    defer sorted_sections.deinit(cmd.allocator);
+    var it = section_map.keyIterator();
+    while (it.next()) |key| try sorted_sections.append(cmd.allocator, key.*);
+    std.sort.pdq([]const u8, sorted_sections.items, StringSortContext{}, StringSortContext.lessThan);
+
+    for (sorted_sections.items) |section_name| {
+        try writer.print("{s}{s}{s}:\n", .{ styles.s(styles.BOLD), section_name, styles.s(styles.RESET) });
+        const cmds_list = section_map.get(section_name).?;
+        std.sort.pdq(*Command, cmds_list.items, CommandSortContext{}, CommandSortContext.lessThan);
+        try printAlignedCommands(cmds_list.items, writer);
+        try writer.print("\n", .{});
+    }
+}
 
 // Tests for the `command` module
 
@@ -787,6 +1037,10 @@ test "command: handleExecutionError silent on broken pipe" {
 }
 
 test "command: Args.Iterator collects arguments and skips argv0" {
+    // Args.Vector is platform-specific: [*:0]const u8 on POSIX, []const u16 on Windows.
+    // This test constructs a POSIX-style argv directly, so it only runs on POSIX targets.
+    if (comptime @import("builtin").os.tag == .windows) return;
+
     const allocator = std.testing.allocator;
 
     // Simulate argv: ["program", "sub", "--flag", "value"]
@@ -816,6 +1070,8 @@ test "command: Args.Iterator collects arguments and skips argv0" {
 }
 
 test "command: Args.Iterator with empty argv produces no user args" {
+    if (comptime @import("builtin").os.tag == .windows) return;
+
     const allocator = std.testing.allocator;
 
     const argv = [_][*:0]const u8{};
@@ -834,7 +1090,102 @@ test "command: Args.Iterator with empty argv produces no user args" {
     try std.testing.expectEqual(@as(usize, 0), user_args.len);
 }
 
+test "regression: init with version auto-adds --version flag" {
+    // Bug: `--version` was added inside `run`, so the flag was missing
+    // if the user called `execute` directly and re-adding it on a second
+    // `run` caused DuplicateFlag errors. Fix: add it in `init`.
+    const allocator = testing.allocator;
+    var cmd = try Command.init(allocator, .{
+        .name = "app",
+        .description = "",
+        .version = "v1.0",
+        .exec = dummyExec,
+    });
+    defer cmd.deinit();
+
+    try std.testing.expect(cmd.findFlag("version") != null);
+    try std.testing.expect(cmd.findFlag("help") != null);
+}
+
+test "regression: init without version does not add --version flag" {
+    const allocator = testing.allocator;
+    var cmd = try Command.init(allocator, .{
+        .name = "app",
+        .description = "",
+        .exec = dummyExec,
+    });
+    defer cmd.deinit();
+
+    try std.testing.expect(cmd.findFlag("version") == null);
+    try std.testing.expect(cmd.findFlag("help") != null);
+}
+
+test "regression: getFlagValue returns last-specified value for repeated flag" {
+    // Bug: iterating parsed_flags front-to-back returned the *first* value,
+    // so `--config a --config b` resolved as `a`. Standard CLI semantics
+    // are last-wins; fix reverses the iteration inside getFlagValue.
+    const allocator = testing.allocator;
+    var cmd = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addFlag(.{ .name = "config", .type = .String, .default_value = .{ .String = "default" }, .description = "" });
+
+    var failed_cmd: ?*const Command = null;
+    const args = &[_][]const u8{ "--config", "first", "--config=second", "--config", "third" };
+    try cmd.execute(args, null, &failed_cmd);
+
+    const val = cmd.getFlagValue("config").?;
+    try std.testing.expectEqualStrings("third", val.String);
+}
+
+test "regression: execute wipes stale state on unvisited subcommands" {
+    // Bug: execute only reset parsed_flags/parsed_positionals on commands
+    // along the current resolution chain. Running the same root twice with
+    // different arg sequences left stale state on branches unvisited by
+    // the second run.
+    const allocator = testing.allocator;
+    var root = try Command.init(allocator, .{ .name = "root", .description = "", .exec = dummyExec });
+    defer root.deinit();
+
+    var sub_a = try Command.init(allocator, .{ .name = "a", .description = "", .exec = dummyExec });
+    try root.addSubcommand(sub_a);
+    try sub_a.addFlag(.{ .name = "verbose", .type = .Bool, .default_value = .{ .Bool = false }, .description = "" });
+
+    const sub_b = try Command.init(allocator, .{ .name = "b", .description = "", .exec = dummyExec });
+    try root.addSubcommand(sub_b);
+
+    // First run: exercise sub_a; sub_a now has parsed_flags populated.
+    var failed_cmd: ?*const Command = null;
+    try root.execute(&[_][]const u8{ "a", "--verbose" }, null, &failed_cmd);
+    try std.testing.expect(sub_a.parsed_flags.items.len > 0);
+
+    // Second run: take the sub_b branch instead. sub_a is not visited and
+    // must be scrubbed so a later `getFlagValue("verbose")` via sub_a does
+    // not see the stale `true` value from the first run.
+    try root.execute(&[_][]const u8{"b"}, null, &failed_cmd);
+    try std.testing.expectEqual(@as(usize, 0), sub_a.parsed_flags.items.len);
+}
+
+test "regression: deinit panics on a subcommand still attached to a parent" {
+    // Bug: calling `sub.deinit()` directly while sub was attached to root
+    // would cause a double-free when the root later ran its recursive sweep.
+    // Fix: deinit panics if `parent != null`. This test verifies the
+    // detached/disowned path works (the panic path cannot be tested without
+    // subprocess isolation).
+    const allocator = testing.allocator;
+    var root = try Command.init(allocator, .{ .name = "root", .description = "", .exec = dummyExec });
+    defer root.deinit();
+    const sub = try Command.init(allocator, .{ .name = "sub", .description = "", .exec = dummyExec });
+    try root.addSubcommand(sub);
+
+    try std.testing.expect(sub.parent.? == root);
+    // Root's deinit should disown sub before calling sub.deinit, so the
+    // recursive sweep does not hit the parent-check panic.
+}
+
 test "command: Args.Iterator with only argv0 produces no user args" {
+    if (comptime @import("builtin").os.tag == .windows) return;
+
     const allocator = std.testing.allocator;
 
     const argv = [_][*:0]const u8{"program"};
@@ -851,4 +1202,68 @@ test "command: Args.Iterator with only argv0 produces no user args" {
 
     const user_args = if (args_list.items.len > 1) args_list.items[1..] else args_list.items[0..0];
     try std.testing.expectEqual(@as(usize, 0), user_args.len);
+}
+
+// ============================================================================
+// Tests for the help-output printers (moved from utils.zig)
+// ============================================================================
+
+test "help: printAlignedFlags produces correct padding" {
+    const allocator = std.testing.allocator;
+    var cmd = try Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addFlag(.{
+        .name = "verbose",
+        .shortcut = 'v',
+        .description = "Enable verbose output",
+        .type = .Bool,
+        .default_value = .{ .Bool = false },
+    });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedFlags(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "--help") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "--verbose") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "Enable verbose output") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "  ") != null);
+}
+
+test "help: printAlignedPositionalArgs produces correct padding" {
+    const allocator = std.testing.allocator;
+    var cmd = try Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addPositional(.{ .name = "input", .description = "Input file", .is_required = true });
+    try cmd.addPositional(.{ .name = "output-file", .description = "Output file", .is_required = false, .default_value = .{ .String = "out.txt" } });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printAlignedPositionalArgs(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "input") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "output-file") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(required)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "(optional)") != null);
+}
+
+test "help: printUsageLine produces correct output" {
+    const allocator = std.testing.allocator;
+    var cmd = try Command.init(allocator, .{ .name = "app", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addPositional(.{ .name = "file", .description = "A file", .is_required = true });
+
+    var buf: [2048]u8 = undefined;
+    var writer = TestBufWriter{ .buf = &buf };
+    try printUsageLine(cmd, &writer);
+
+    const output = writer.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "app") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "<file>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "[flags]") != null);
 }

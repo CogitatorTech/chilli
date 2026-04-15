@@ -21,21 +21,38 @@ permissions:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            zig-url: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+            zig-dir: zig-x86_64-linux-0.16.0
+          - os: macos-latest
+            zig-url: https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz
+            zig-dir: zig-aarch64-macos-0.16.0
+          - os: windows-latest
+            zig-url: https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip
+            zig-dir: zig-x86_64-windows-0.16.0
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Zig 0.16.0
+      - name: Install Zig 0.16.0 (Unix)
+        if: runner.os != 'Windows'
         run: |
-          curl -sSfL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ
-          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+          curl -sSfL ${{ matrix.zig-url }} | tar -xJ
+          echo "$PWD/${{ matrix.zig-dir }}" >> "$GITHUB_PATH"
 
-      - name: Install dependencies
+      - name: Install Zig 0.16.0 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y make
+          Invoke-WebRequest -Uri "${{ matrix.zig-url }}" -OutFile zig.zip
+          Expand-Archive zig.zip -DestinationPath .
+          echo "$PWD\${{ matrix.zig-dir }}" | Out-File -Append -FilePath $env:GITHUB_PATH
 
-      - name: Run the tests
-        run: make test
+      - name: Run tests
+        run: zig build test --summary all

@@ -67,9 +67,14 @@ pub const CommandContext = struct {
     /// Retrieves the value for a flag, searching parsed values, then environment
     /// variables, and finally falling back to the default value.
     ///
-    /// NOTE: If the value comes from an environment variable, it is allocated using the
-    /// temporary allocator (`tmp_allocator`) and will be invalid after the `exec` function
-    /// returns. If you need to store the value, you must copy it using the `app_allocator`.
+    /// Memory model for env-var-sourced values: the raw string read from the
+    /// environment is allocated on `tmp_allocator`. For flags of type
+    /// `.String`, that allocation IS the returned value and stays alive until
+    /// `tmp_allocator`'s arena is released (in the normal `execute` flow,
+    /// this is when the `exec` function returns). For non-`.String` flags
+    /// the raw string is freed immediately after it has been parsed into a
+    /// primitive `FlagValue`. Tests that call `getFlag` directly should use
+    /// an arena-backed `tmp_allocator` to avoid manual cleanup.
     pub fn getFlag(self: *const CommandContext, name: []const u8, comptime T: type) errors.Error!T {
         // 1. Check for a parsed value from the command line.
         if (self.command.getFlagValue(name)) |parsed_value| {
@@ -81,11 +86,24 @@ pub const CommandContext = struct {
             std.debug.panic("Attempted to access an undefined flag: '{s}'", .{name});
 
         // 3. Check for a value from an environment variable.
+        // `Environ.getAlloc` is cross-platform (POSIX and Windows): it
+        // returns an owned WTF-8 copy of the value or `EnvironmentVariableMissing`.
         if (flag_def.env_var) |env_name| {
             const environ = std.Options.debug_threaded_io.?.environ.process_environ;
-            if (std.process.Environ.getPosix(environ, env_name)) |env_val_str| {
+            if (environ.getAlloc(self.tmp_allocator, env_name)) |env_val_str| {
+                // For `.String` flags, env_val_str becomes the returned value
+                // and must stay allocated for the caller. For other types,
+                // `parseValue` copies into a primitive `FlagValue`, so we
+                // release the source string eagerly — this keeps lookups
+                // clean even when `tmp_allocator` is not an arena.
+                const keep_alloc = flag_def.type == .String;
+                defer if (!keep_alloc) self.tmp_allocator.free(env_val_str);
                 const env_value = try types.parseValue(flag_def.type, env_val_str);
                 return castFlagValueTo(env_value, T, "flag", name, .environment);
+            } else |err| switch (err) {
+                error.EnvironmentVariableMissing => {}, // fall through to default
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidWtf8 => return error.InvalidWtf8,
             }
         }
 
@@ -327,9 +345,11 @@ test "context: getArgsAs for typed variadic" {
     try testing.expectError(error.InvalidCharacter, ctx_int.getArgsAs(i64, "numbers", allocator));
 }
 
-test "context: getFlag reads env var via debug_threaded_io environ" {
-    // Verify that the Environ.getPosix lookup through debug_threaded_io
-    // can find a real environment variable (PATH is always set on POSIX).
+test "context: getFlag reads env var on all platforms via Environ.getAlloc" {
+    // Regression: env-var lookup previously used the POSIX-only
+    // `Environ.getPosix`, so Windows silently fell through to the default.
+    // `Environ.getAlloc` works on both POSIX and Windows, and this test
+    // covers both (PATH is set on both).
     const allocator = testing.allocator;
     var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
     defer cmd.deinit();
@@ -342,12 +362,53 @@ test "context: getFlag reads env var via debug_threaded_io environ" {
         .description = "",
     });
 
-    const ctx = CommandContext{ .app_allocator = allocator, .tmp_allocator = allocator, .command = cmd, .data = null };
+    // For `.String` flags sourced from an env var, the returned slice lives
+    // on `tmp_allocator`. Back it with an arena here so the test does not
+    // have to guess the origin of the slice it owns. This mirrors how the
+    // normal `execute` flow wires up `tmp_allocator`.
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const ctx = CommandContext{
+        .app_allocator = allocator,
+        .tmp_allocator = arena.allocator(),
+        .command = cmd,
+        .data = null,
+    };
 
-    // PATH is always set; getFlag should return its value, not the default
+    // PATH is set on both POSIX and Windows; getFlag should return its
+    // value, not the default.
     const path_value = try ctx.getFlag("search-path", []const u8);
     try testing.expect(path_value.len > 0);
     try testing.expect(!std.mem.eql(u8, path_value, "fallback"));
+}
+
+test "regression: env-var Int parse failure does not leak source string" {
+    // For non-`.String` env-var flags, `getFlag` parses the raw string into
+    // a primitive `FlagValue` and must then free the source. This test
+    // forces a parse failure (PATH is not a valid integer) and relies on
+    // `testing.allocator` to flag any leak.
+    const allocator = testing.allocator;
+    var cmd = try command.Command.init(allocator, .{ .name = "test", .description = "", .exec = dummyExec });
+    defer cmd.deinit();
+
+    try cmd.addFlag(.{
+        .name = "bad-number",
+        .type = .Int,
+        .default_value = .{ .Int = 0 },
+        .env_var = "PATH", // always set, never a valid integer
+        .description = "",
+    });
+
+    const ctx = CommandContext{
+        .app_allocator = allocator,
+        .tmp_allocator = allocator,
+        .command = cmd,
+        .data = null,
+    };
+
+    // Parse should fail with InvalidCharacter; the source string allocated
+    // on `tmp_allocator` must be freed before the error propagates.
+    try testing.expectError(error.InvalidCharacter, ctx.getFlag("bad-number", i64));
 }
 
 test "context: getFlag env var lookup returns default for unset var" {

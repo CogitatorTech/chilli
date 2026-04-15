@@ -32,4 +32,8 @@ pub const Error = error{
     RequiredArgumentAfterOptional,
     /// A command was defined with an empty string as an alias.
     EmptyAlias,
+    /// An environment variable name or value was not valid WTF-8 on Windows.
+    /// Unreachable on POSIX targets; included so Windows callers of
+    /// `getFlag` with an `env_var`-backed flag can handle it uniformly.
+    InvalidWtf8,
 } || std.fmt.ParseIntError || std.fmt.ParseFloatError || std.mem.Allocator.Error;
