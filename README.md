@@ -56,6 +56,8 @@ Replace `<branch_or_tag>` with the desired branch or tag, like `main` (for the d
 (for the specified release version).
 This command will download Chilli and add it to Zig's global cache and update your project's `build.zig.zon` file.
 
+##### Zig Version Support
+
 Zig version supported by the main releases of Chilli:
 
 | Zig      | Chilli Tags |
