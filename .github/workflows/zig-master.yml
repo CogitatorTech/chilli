@@ -1,0 +1,32 @@
+name: Zig Master Canary
+
+on:
+  workflow_dispatch:
+  schedule: # Run every Monday at 06:00 (UTC)
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Install Zig (master)
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: master
+
+      - name: Build
+        run: make build
+
+      - name: Run tests
+        run: make test

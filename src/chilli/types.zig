@@ -62,6 +62,12 @@ pub const Flag = struct {
     /// If set, the framework will check this environment variable for a value
     /// if the flag is not provided on the command line.
     env_var: ?[]const u8 = null,
+    /// If set, marks the flag as deprecated. The value is a free-form reason
+    /// or replacement suggestion (e.g., "use --new-flag instead"). The flag
+    /// is still parsed and honored, but a one-line warning is written to
+    /// stderr when it is used. Set `CHILLI_NO_DEPRECATION_WARNINGS=1` to
+    /// silence all deprecation warnings.
+    deprecated: ?[]const u8 = null,
 };
 
 /// Defines a positional argument for a command.
@@ -79,6 +85,11 @@ pub const PositionalArg = struct {
     /// If `true`, this argument will capture all remaining positional arguments.
     /// Only the last positional argument for a command can be variadic.
     variadic: bool = false,
+    /// If set, marks the argument as deprecated. The value is a free-form
+    /// reason or replacement suggestion. The argument is still parsed and
+    /// honored; a warning is written to stderr when the user supplies a
+    /// value for it.
+    deprecated: ?[]const u8 = null,
 };
 
 // Tests for the `types` module

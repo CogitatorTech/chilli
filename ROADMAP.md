@@ -27,6 +27,6 @@ It outlines features to be implemented and their current status.
     -   [x] Simple, declarative API for building commands
     -   [x] Named access for all flags and arguments
     -   [x] Shared context data for passing application state
-    -   [ ] Deprecation notices for commands or flags
+    -   [x] Deprecation notices for commands, flags, and positional arguments
     -   [ ] Built-in TUI components (like spinners and progress bars)
     -   [ ] Automatic command history and completion
