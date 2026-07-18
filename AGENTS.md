@@ -12,7 +12,7 @@ Priorities, in order:
 1. Correctness of argument parsing, flag resolution, and help output.
 2. Minimal public API for defining and running command trees from other Zig projects.
 3. Zero non-Zig dependencies, maintainable, and well-tested code.
-4. Cross-platform support (Linux, macOS, and Windows).
+4. Cross-platform support (Linux, macOS, Windows, and Wasm).
 
 ## Core Rules
 
