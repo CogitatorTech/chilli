@@ -7,7 +7,7 @@
 <h2>Chilli</h2>
 
 [![Tests](https://img.shields.io/github/actions/workflow/status/CogitatorTech/chilli/tests.yml?label=tests&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/actions/workflows/tests.yml)
-[![Zig](https://img.shields.io/badge/zig-0.16.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
+[![Zig](https://img.shields.io/badge/zig-0.17.0-F7A41D?style=flat&labelColor=282c34&logo=zig)](https://ziglang.org/download/)
 [![Docs](https://img.shields.io/badge/docs-read-blue?style=flat&labelColor=282c34&logo=read-the-docs)](https://CogitatorTech.github.io/chilli)
 [![Examples](https://img.shields.io/badge/examples-view-green?style=flat&labelColor=282c34&logo=zig)](https://github.com/CogitatorTech/chilli/tree/main/examples)
 [![Release](https://img.shields.io/github/release/CogitatorTech/chilli.svg?label=release&style=flat&labelColor=282c34&logo=github)](https://github.com/CogitatorTech/chilli/releases/latest)
@@ -62,10 +62,11 @@ Zig version supported by the main releases of Chilli:
 
 | Zig      | Chilli Tags |
 |----------|-------------|
+| `0.17.0` | `v0.4.0`    |
 | `0.16.0` | `v0.3.x`    |
 | `0.15.x` | `v0.2.x`    |
 
-The `main` branch normally is developed and build using the latest (non-developmental) Zig release.
+The `main` branch normally is developed and built using the latest (non-developmental) Zig release.
 
 #### Adding to Build Script
 
