@@ -29,22 +29,12 @@ pub fn build(b: *std.Build) void {
 
     // --- Docs Setup ---
     const docs_step = b.step("docs", "Generate API documentation");
-    const doc_install_path = "docs/api";
-
-    // Zig's `-femit-docs=<path>` writes the leaf dir but does not create
-    // intermediate parents, and git does not track empty directories, so a
-    // fresh checkout may have no `docs/` at all. Create it portably here
-    // (idempotent: createDirPath is a no-op when the directory already exists).
-    const ensure_docs_dir = EnsureDirStep.create(b, "docs");
-    const gen_docs_cmd = b.addSystemCommand(&[_][]const u8{
-        b.graph.zig_exe, // Use the same zig that is running the build
-        "build-lib",
-        "src/lib.zig",
-        "-femit-docs=" ++ doc_install_path,
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = lib.getEmittedDocs(),
+        .install_dir = .{ .custom = "../docs" },
+        .install_subdir = "api",
     });
-    gen_docs_cmd.step.dependOn(&ensure_docs_dir.step);
-
-    docs_step.dependOn(&gen_docs_cmd.step);
+    docs_step.dependOn(&install_docs.step);
 
     // --- Test Setup ---
     const test_module = b.createModule(.{
@@ -67,11 +57,15 @@ pub fn build(b: *std.Build) void {
     examples_blk: {
         // If the examples directory isn't present (common when used as a dependency),
         // skip setting up example artifacts instead of panicking.
-        var examples_dir = b.build_root.handle.openDir(io, examples_path, .{ .iterate = true }) catch |err| {
-            if (err == error.FileNotFound or err == error.NotDir) break :examples_blk;
+        var examples_dir = b.root.openDir(io, examples_path, .{ .iterate = true }) catch |err| {
+            if (err == error.FileNotFound or err == error.NotDir) {
+                b.graph.poisonCache();
+                break :examples_blk;
+            }
             @panic("Can't open 'examples' directory");
         };
         defer examples_dir.close(io);
+        b.dependOnDirectoryContents(b.path(examples_path));
 
         var dir_iter = examples_dir.iterate();
         while (dir_iter.next(io) catch @panic("Failed to iterate examples")) |entry| {
@@ -101,32 +95,3 @@ pub fn build(b: *std.Build) void {
         }
     }
 }
-
-/// Build step that ensures a directory (relative to the build root) exists.
-/// Runs `std.fs.Dir.createDirPath` at make-time, so it only fires when a
-/// step that depends on it is actually being built. Portable across Linux,
-/// macOS, and Windows.
-const EnsureDirStep = struct {
-    step: std.Build.Step,
-    sub_path: []const u8,
-
-    fn create(b: *std.Build, sub_path: []const u8) *EnsureDirStep {
-        const self = b.allocator.create(EnsureDirStep) catch @panic("OOM");
-        self.* = .{
-            .step = std.Build.Step.init(.{
-                .id = .custom,
-                .name = b.fmt("ensure {s}/", .{sub_path}),
-                .owner = b,
-                .makeFn = make,
-            }),
-            .sub_path = sub_path,
-        };
-        return self;
-    }
-
-    fn make(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anyerror!void {
-        _ = options;
-        const self: *EnsureDirStep = @fieldParentPtr("step", step);
-        try step.owner.build_root.handle.createDirPath(step.owner.graph.io, self.sub_path);
-    }
-};

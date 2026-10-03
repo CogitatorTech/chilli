@@ -41,7 +41,7 @@ fn downloadExec(ctx: chilli.CommandContext) !void {
     var response = try req.receiveHead(&redirect_buf);
 
     if (response.head.status != .ok) {
-        std.debug.print("Error: HTTP {d} - {s}\n", .{ @intFromEnum(response.head.status), @tagName(response.head.status) });
+        std.debug.print("Error: HTTP {d} - {s}\n", .{ @backingInt(response.head.status), @tagName(response.head.status) });
         return error.HttpRequestFailed;
     }
 
