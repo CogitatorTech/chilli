@@ -62,7 +62,7 @@ Zig version supported by the main releases of Chilli:
 
 | Zig      | Chilli Tags |
 |----------|-------------|
-| `0.17.0` | `v0.4.0`    |
+| `0.17.0` | `v0.4.x`    |
 | `0.16.0` | `v0.3.x`    |
 | `0.15.x` | `v0.2.x`    |
 
